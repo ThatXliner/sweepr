@@ -56,7 +56,7 @@
 			</div>
 		{/each}
 	</div>
-	<div>Flags left: 0</div>
+	<div>Flags left: {game.flags}</div>
 </div>
 
 <style>

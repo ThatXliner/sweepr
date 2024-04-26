@@ -13,19 +13,23 @@ export class Game {
 	public rows: number;
 	public cols: number;
 	public mines: number;
+	public flags: number = $state(0);
 
 	constructor(rows: number, cols: number, mines: number) {
 		this.board = this.generateBoard(rows, cols, mines);
 		this.rows = rows;
 		this.cols = cols;
 		this.mines = mines;
+		this.flags = mines;
 	}
 	public getBoard(): Board {
 		return this.board;
 	}
 	public flagCell(row: number, col: number): Board {
 		const cell = this.board[row][col];
+		if (this.flags === 0) return this.board;
 		if (!cell.isRevealed) {
+			this.flags += cell.isFlagged ? 1 : -1;
 			cell.isFlagged = !cell.isFlagged;
 		}
 		return this.board;
