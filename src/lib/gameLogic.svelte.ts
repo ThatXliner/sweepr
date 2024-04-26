@@ -8,11 +8,11 @@ export interface Cell {
 export type Board = Cell[][];
 
 export class Game {
-	private board: Board;
-	private isFirstClick = true;
-	private rows: number;
-	private cols: number;
-	private mines: number;
+	public board: Board;
+	public isFirstClick = true;
+	public rows: number;
+	public cols: number;
+	public mines: number;
 
 	constructor(rows: number, cols: number, mines: number) {
 		this.board = this.generateBoard(rows, cols, mines);
@@ -23,11 +23,12 @@ export class Game {
 	public getBoard(): Board {
 		return this.board;
 	}
-	public flagCell(row: number, col: number): void {
+	public flagCell(row: number, col: number): Board {
 		const cell = this.board[row][col];
 		if (!cell.isRevealed) {
 			cell.isFlagged = !cell.isFlagged;
 		}
+		return this.board;
 	}
 
 	public checkWin(): boolean {
@@ -40,13 +41,6 @@ export class Game {
 
 	public revealCell(row: number, col: number): Board {
 		const cell = this.board[row][col];
-		if (this.isFirstClick) {
-			// Guarantee that the first cell clicked is not a mine
-			this.isFirstClick = false;
-			while (this.board[row][col].isMine || this.board[row][col].adjacentMines != 0) {
-				this.board = this.generateBoard(this.rows, this.cols, this.mines);
-			}
-		}
 		if (cell.isRevealed) {
 			let minesFlagged = 0;
 			for (let i = Math.max(row - 1, 0); i <= Math.min(row + 1, this.board.length - 1); i++) {
@@ -83,7 +77,7 @@ export class Game {
 		return this.board;
 	}
 
-	private generateBoard(rows: number, cols: number, mines: number): Board {
+	public generateBoard(rows: number, cols: number, mines: number): Board {
 		const board: Board = Array(rows)
 			.fill(null)
 			.map(() =>

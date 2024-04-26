@@ -5,15 +5,23 @@
 	const cols = 30;
 	const mines = 99;
 	let game: Game = new Game(rows, cols, mines);
-
+	let board = game.board;
 	function handleCellClick(row: number, col: number) {
-		// Guaranteed first click solvability
-		game.revealCell(row, col);
+		// Guarantee that the first cell clicked is not a mine.
+		// For some reason, this has to be done in the click handler
+		// otherwise the UI will not update
+		if (game.isFirstClick) {
+			game.isFirstClick = false;
+			while (game.board[row][col].isMine || game.board[row][col].adjacentMines != 0) {
+				game.board = game.generateBoard(game.rows, game.cols, game.mines);
+			}
+		}
+		board = game.revealCell(row, col);
 	}
 
 	function handleCellRightClick(event: MouseEvent, row: number, col: number) {
 		event.preventDefault();
-		game.flagCell(row, col);
+		board = game.flagCell(row, col);
 	}
 </script>
 
@@ -26,7 +34,7 @@
 <!-- I use flex for now because I can't deal with grid -->
 <div class="flex h-screen w-screen items-center justify-evenly space-x-5">
 	<div>
-		{#each game.getBoard() as row, rowIndex}
+		{#each board as row, rowIndex}
 			<div class="flex">
 				{#each row as cell, colIndex}
 					<button
