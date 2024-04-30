@@ -25,6 +25,29 @@
 		event.preventDefault();
 		board = game.flagCell(row, col);
 	}
+
+	function getCellColor(mineCount: number) {
+		switch (mineCount) {
+			case 1:
+				return 'text-blue-500';
+			case 2:
+				return 'text-green-500';
+			case 3:
+				return 'text-red-500';
+			case 4:
+				return 'text-purple-500';
+			case 5: // Maroon
+				return 'text-yellow-500';
+			case 6: // Teal
+				return 'text-yellow-500';
+			case 7:
+				return 'text-black';
+			case 8:
+				return 'text-slate-500';
+			default:
+				return '';
+		}
+	}
 </script>
 
 <!-- 
@@ -42,7 +65,7 @@
 					<button
 						class="h-8 w-8 border border-gray-400 {cell.isRevealed
 							? 'bg-white'
-							: 'bg-gray-200'} {cell.isFlagged ? 'text-red-500' : ''}"
+							: 'bg-gray-200'} {cell.isFlagged ? 'text-red-500' : getCellColor(cell.adjacentMines)}"
 						on:click={() => handleCellClick(rowIndex, colIndex)}
 						on:contextmenu={(event) => handleCellRightClick(event, rowIndex, colIndex)}
 					>
@@ -58,12 +81,10 @@
 			</div>
 		{/each}
 	</div>
-	<div>
-		<div>
-			<div class="flex items-center space-x-2">
-				<Switch id="airplane-mode" disabled />
-				<Label for="airplane-mode">Guess-less mode</Label>
-			</div>
+	<div class="flex flex-col justify-evenly space-y-3">
+		<div class="flex items-center space-x-2">
+			<Switch id="airplane-mode" disabled />
+			<Label for="airplane-mode">Guess-less mode</Label>
 		</div>
 		<div>Flags left: {game.flags}</div>
 	</div>
