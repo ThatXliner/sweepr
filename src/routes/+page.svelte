@@ -1,4 +1,6 @@
 <script lang="ts">
+	import Label from '$lib/components/ui/label/label.svelte';
+	import Switch from '$lib/components/ui/switch/switch.svelte';
 	import { Game } from '$lib/gameLogic.svelte';
 
 	const rows = 16;
@@ -56,7 +58,15 @@
 			</div>
 		{/each}
 	</div>
-	<div>Flags left: {game.flags}</div>
+	<div>
+		<div>
+			<div class="flex items-center space-x-2">
+				<Switch id="airplane-mode" disabled />
+				<Label for="airplane-mode">Guess-less mode</Label>
+			</div>
+		</div>
+		<div>Flags left: {game.flags}</div>
+	</div>
 </div>
 
 <style>

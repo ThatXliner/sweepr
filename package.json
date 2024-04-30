@@ -43,6 +43,7 @@
 	"dependencies": {
 		"@supabase/ssr": "^0.1.0",
 		"@supabase/supabase-js": "^2.42.7",
+		"bits-ui": "^0.21.6",
 		"clsx": "^2.1.1",
 		"tailwind-merge": "^2.3.0",
 		"tailwind-variants": "^0.2.1"
