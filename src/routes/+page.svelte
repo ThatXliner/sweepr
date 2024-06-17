@@ -4,7 +4,7 @@
 	- Blitz: The 1v1 stamina marathon to clear more tiles than your opponent
  -->
 
-<main class="flex h-screen flex-col justify-center space-y-36">
+<main class="flex h-screen flex-col justify-center space-y-36 overflow-x-hidden">
 	<a
 		href="/classic"
 		class="ml-[50vw] rounded bg-blue-500 px-4 py-2 text-8xl font-bold text-white transition-transform duration-100 hover:scale-125 hover:bg-blue-700"
