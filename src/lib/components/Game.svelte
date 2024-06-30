@@ -94,7 +94,7 @@
 
 <Time milliseconds={elapsedTime} />
 <!-- I use flex for now because I can't deal with grid -->
-<div class="flex h-screen w-screen items-center justify-evenly space-x-5">
+<div class="flex h-screen items-center justify-evenly">
 	<div>
 		{#each board as row, rowIndex}
 			<div class="flex">
