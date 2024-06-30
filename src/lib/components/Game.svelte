@@ -125,8 +125,12 @@
 			<h2>Left click to reveal, right click to flag</h2>
 		{/if}
 		<div class="flex items-center space-x-2">
-			<Switch id="airplane-mode" disabled />
-			<Label for="airplane-mode">Guess-less mode</Label>
+			<Switch id="guess-less-mode" disabled />
+			<Label for="guess-less-mode">Guess-less mode</Label>
+		</div>
+		<div class="flex items-center space-x-2">
+			<Switch id="invert-controls" bind:checked={invertControls} />
+			<Label for="invert-controls">Invert controls</Label>
 		</div>
 		<div>Flags left: {game.flags}</div>
 	</div>
