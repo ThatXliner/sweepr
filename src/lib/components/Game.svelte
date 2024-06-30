@@ -9,7 +9,7 @@
 	export let mines = 99;
 	let game: Game = new Game(rows, cols, mines);
 	let board = game.board;
-	function handleCellClick(row: number, col: number) {
+	function reveal(row: number, col: number) {
 		// Guarantee that the first cell clicked is not a mine.
 		// For some reason, this has to be done in the click handler
 		// otherwise the UI will not update
@@ -25,12 +25,26 @@
 			stopTimer();
 		}
 	}
-
-	function handleCellRightClick(event: MouseEvent, row: number, col: number) {
-		event.preventDefault();
+	function flag(row: number, col: number) {
 		board = game.flagCell(row, col);
 		if (game.checkLose() || game.checkWin()) {
 			stopTimer();
+		}
+	}
+	function handleCellClick(row: number, col: number) {
+		if (invertControls) {
+			flag(row, col);
+		} else {
+			reveal(row, col);
+		}
+	}
+
+	function handleCellRightClick(event: MouseEvent, row: number, col: number) {
+		event.preventDefault();
+		if (invertControls) {
+			reveal(row, col);
+		} else {
+			flag(row, col);
 		}
 	}
 
@@ -59,6 +73,7 @@
 	let startTime: number = 0;
 	let timer: NodeJS.Timeout;
 	let elapsedTime: number = 0;
+	let invertControls = false;
 
 	function startTimer() {
 		startTime = Date.now();
@@ -104,6 +119,11 @@
 		{/each}
 	</div>
 	<div class="flex flex-col justify-evenly space-y-3">
+		{#if invertControls}
+			<h2>Left click to flag, right click to reveal</h2>
+		{:else}
+			<h2>Left click to reveal, right click to flag</h2>
+		{/if}
 		<div class="flex items-center space-x-2">
 			<Switch id="airplane-mode" disabled />
 			<Label for="airplane-mode">Guess-less mode</Label>
