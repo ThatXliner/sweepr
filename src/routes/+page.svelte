@@ -10,21 +10,21 @@
 		class="ml-[50vw] rounded bg-blue-500 px-4 py-2 text-8xl font-bold text-white transition-transform duration-100 hover:scale-125 hover:bg-blue-700"
 	>
 		Classic
-		<!-- <p class="text-lg italic">The original solo game from the 90s!</p> -->
+		<p class="text-lg italic">The original solo game from the 90s!</p>
 	</a>
 	<a
 		href="/tactical"
 		class="ml-[50vw] rounded bg-red-500 px-4 py-2 text-8xl font-bold text-white transition-transform duration-100 hover:scale-125 hover:bg-red-700"
 	>
 		Tactical
-		<!-- <p class="text-lg italic">An online battle royale where you place mines on their board!</p> -->
+		<p class="text-lg italic">An online battle royale where you place mines on their board!</p>
 	</a>
 	<a
 		href="/blitz"
 		class="ml-[50vw] rounded bg-yellow-500 px-4 py-2 text-8xl font-bold text-white transition-transform duration-100 hover:scale-125 hover:bg-yellow-700"
 	>
 		Blitz
-		<!-- <p class="text-lg italic">The 1v1 stamina marathon to clear more tiles than your opponent</p> -->
+		<p class="text-lg italic">The 1v1 stamina marathon to clear more tiles than your opponent</p>
 	</a>
 	<div class="absolute ml-3 flex h-screen flex-col space-y-3">
 		<h1 class="text-center font-mono text-9xl">sweepr</h1>
