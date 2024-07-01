@@ -30,6 +30,10 @@
 	let globalTimerInitialized = false;
 	let globalScrollInitialized = false;
 	let globalGameOver = false;
+	function loseTheGame() {
+		stopTimer();
+		globalGameOver = true;
+	}
 	function reveal(boardType: BoardType, row: number, col: number) {
 		const game = boardType === 'alpha' ? gameAlpha : gameBeta;
 		// Guarantee that the first cell clicked is not a mine.
@@ -48,20 +52,19 @@
 		} else {
 			betaBoard = game.revealCell(row, col);
 		}
-		if (game.checkLose() || game.checkWin()) {
-			stopTimer();
-			globalGameOver = true;
+		if (game.checkLose()) {
+			loseTheGame();
 		}
 	}
 	function flag(boardType: BoardType, row: number, col: number) {
 		const game = boardType === 'alpha' ? gameAlpha : gameBeta;
+		if (game.isFirstClick) {
+			return;
+		}
 		if (boardType === 'alpha') {
 			alphaBoard = game.flagCell(row, col);
 		} else {
 			betaBoard = game.flagCell(row, col);
-		}
-		if (game.checkLose() || game.checkWin()) {
-			stopTimer();
 		}
 	}
 
@@ -87,6 +90,7 @@
 	let invertControls = false;
 
 	function startTimer() {
+		// Only initialize once
 		if (globalTimerInitialized) {
 			return;
 		}
@@ -107,6 +111,7 @@
 	}
 	let then = 0;
 	function startInfiniteScroll() {
+		// Only initialize once
 		if (globalScrollInitialized) {
 			return;
 		}
@@ -115,17 +120,23 @@
 		globalScrollInitialized = true;
 	}
 	const fpsInterval = 1000 / 24;
+	function rowIsComplete(game: Game, row: number) {
+		return game.board[row].every((cell) => cell.isRevealed || (cell.isFlagged && cell.isMine));
+	}
 	function scroll() {
 		if (globalGameOver) return;
-
 		const now = Date.now();
 		const elapsed = now - then;
 		if (elapsed > fpsInterval) {
 			// FPS throttling code stolen from https://stackoverflow.com/a/19772220
 			then = now - (elapsed % fpsInterval);
 			// Vertical scrolling animation from Llama3
-			let yPosAlpha = Number.parseInt(boardAlpha.style.top.replace('px', ''));
-			let yPosBeta = Number.parseInt(boardBeta.style.top.replace('px', ''));
+			let yPosAlpha = Number.parseInt(
+				boardAlpha.style.transform.replace('px', '').replace('translateY(', '').replace(')', '')
+			);
+			let yPosBeta = Number.parseInt(
+				boardBeta.style.transform.replace('px', '').replace('translateY(', '').replace(')', '')
+			);
 			yPosAlpha -= scrollRate;
 			yPosBeta -= scrollRate;
 			// I played with the values until it looked right
@@ -141,8 +152,23 @@
 				gameBeta = new Game(rows, cols, mines);
 				betaBoard = gameBeta.board;
 			}
-			boardAlpha.style.top = `${yPosAlpha}px`;
-			boardBeta.style.top = `${yPosBeta}px`;
+			const alphaRowsGone = Math.round(yPosAlpha / 48);
+			const betaRowsGone = Math.round(yPosBeta / 48) + rows;
+			if (alphaRowsGone <= 0) {
+				if (!rowIsComplete(gameAlpha, -alphaRowsGone)) {
+					loseTheGame();
+					return;
+				}
+			}
+			if (betaRowsGone <= 0) {
+				if (!rowIsComplete(gameBeta, -betaRowsGone)) {
+					loseTheGame();
+					return;
+				}
+			}
+			console.log(alphaRowsGone, betaRowsGone);
+			boardAlpha.style.transform = `translateY(${yPosAlpha}px)`;
+			boardBeta.style.transform = `translateY(${yPosBeta}px)`;
 		}
 
 		// Request another animation frame to continue scrolling
@@ -153,8 +179,10 @@
 <Time milliseconds={elapsedTime} />
 <!-- I use flex for now because I can't deal with grid -->
 <div class="flex h-screen justify-evenly">
-	<div class="max-h-[{rows * 3}rem] max-w-[{cols * 3}rem] overflow-hidden border-8 border-black">
-		<div bind:this={boardAlpha} class="relative" style="top:{(48 * rows) / 2}px">
+	<!-- These must be manually calculated as {3*rows} and {3*cols} respectively -->
+	<div class="relative max-h-[42rem] max-w-[21rem] overflow-hidden border-8 border-black">
+		<div class="absolute top-0 z-10 h-6 w-full bg-red-500 text-center">DEATH.</div>
+		<div bind:this={boardAlpha} style="transform:translateY({(48 * rows) / 2}px)">
 			{#each alphaBoard as row, rowIndex}
 				<div class="flex">
 					{#each row as cell, colIndex}
@@ -179,14 +207,14 @@
 				</div>
 			{/each}
 		</div>
-		<div bind:this={boardBeta} class="relative" style="top:{(48 * rows) / 2}px">
+		<div bind:this={boardBeta} style="transform:translateY({(48 * rows) / 2}px)">
 			{#each betaBoard as row, rowIndex}
 				<div class="flex">
 					{#each row as cell, colIndex}
 						<button
 							class="h-12 w-12 border border-gray-400 {cell.isRevealed
 								? 'bg-white'
-								: 'bg-gray-200'} {cell.isFlagged
+								: 'bg-blue-200'} {cell.isFlagged
 								? 'text-red-500'
 								: getCellColor(cell.adjacentMines)}"
 							on:click={() => handleCellClick('beta', rowIndex, colIndex)}

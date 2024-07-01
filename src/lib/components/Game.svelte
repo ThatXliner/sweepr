@@ -26,6 +26,9 @@
 		}
 	}
 	function flag(row: number, col: number) {
+		if (game.isFirstClick) {
+			return;
+		}
 		board = game.flagCell(row, col);
 		if (game.checkLose() || game.checkWin()) {
 			stopTimer();
