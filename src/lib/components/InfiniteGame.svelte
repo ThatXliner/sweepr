@@ -11,13 +11,14 @@
 	import Switch from '$lib/components/ui/switch/switch.svelte';
 	import { Game } from '$lib/gameLogic.svelte';
 	import Time from './Time.svelte';
-
-	export let scrollRate = 1; // 1 row per second
+	// TODO: Scaling factor
+	export let scrollRate = 1;
 	const rows = 14;
 	const cols = 9;
 	const mines = 32;
 	const HEIGHT_PX = 48 * rows;
 	const WIDTH_PX = 48 * cols;
+
 	// TODO: in the future, the rate may increase as time goes on
 	let gameAlpha: Game = new Game(rows, cols, mines);
 	let gameBeta: Game = new Game(rows, cols, mines);
@@ -126,32 +127,39 @@
 		clearInterval(timer);
 		elapsedTime = 0;
 	}
+	let then = 0;
 	function startInfiniteScroll() {
 		if (globalScrollInitialized) {
 			return;
 		}
+		then = Date.now();
 		scroll();
 		globalScrollInitialized = true;
 	}
+	const fpsInterval = 1000 / 24;
 	function scroll() {
 		if (globalGameOver) return;
-		let yPosAlpha = Number.parseInt(boardAlpha.style.top.replace('px', ''));
-		let yPosBeta = Number.parseInt(boardBeta.style.top.replace('px', ''));
-		console.log(yPosAlpha, yPosBeta, scrollRate, yPosAlpha - scrollRate);
-		yPosAlpha -= scrollRate;
-		yPosBeta -= scrollRate;
-		if (yPosAlpha <= -HEIGHT_PX) {
-			yPosAlpha = HEIGHT_PX;
-			gameAlpha = new Game(rows, cols, mines);
-			alphaBoard = gameAlpha.board;
+		const now = Date.now();
+		const elapsed = now - then;
+		if (elapsed > fpsInterval) {
+			then = now - (elapsed % fpsInterval);
+			let yPosAlpha = Number.parseInt(boardAlpha.style.top.replace('px', ''));
+			let yPosBeta = Number.parseInt(boardBeta.style.top.replace('px', ''));
+			yPosAlpha -= scrollRate;
+			yPosBeta -= scrollRate;
+			if (yPosAlpha <= -HEIGHT_PX) {
+				yPosAlpha = HEIGHT_PX;
+				gameAlpha = new Game(rows, cols, mines);
+				alphaBoard = gameAlpha.board;
+			}
+			if (yPosBeta <= -HEIGHT_PX * 2) {
+				yPosBeta = 0;
+				gameBeta = new Game(rows, cols, mines);
+				betaBoard = gameBeta.board;
+			}
+			boardAlpha.style.top = `${yPosAlpha}px`;
+			boardBeta.style.top = `${yPosBeta}px`;
 		}
-		if (yPosBeta <= -HEIGHT_PX * 2) {
-			yPosBeta = 0;
-			gameBeta = new Game(rows, cols, mines);
-			betaBoard = gameBeta.board;
-		}
-		boardAlpha.style.top = `${yPosAlpha}px`;
-		boardBeta.style.top = `${yPosBeta}px`;
 
 		// Request another animation frame to continue scrolling
 		requestAnimationFrame(scroll);
