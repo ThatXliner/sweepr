@@ -17,7 +17,7 @@
 	const cols = rows / 2;
 	const mines = Math.round(rows * cols * 0.2);
 	const HEIGHT_PX = 48 * rows;
-	const WIDTH_PX = 48 * cols;
+	// const WIDTH_PX = 48 * cols;
 
 	let gameAlpha: Game = new Game(rows, cols, mines);
 	let gameBeta: Game = new Game(rows, cols, mines);
