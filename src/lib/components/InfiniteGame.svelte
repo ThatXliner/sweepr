@@ -9,9 +9,9 @@
 	// and a new bottom board is generated.
 	import Label from '$lib/components/ui/label/label.svelte';
 	import Switch from '$lib/components/ui/switch/switch.svelte';
-	import { Game } from '$lib/gameLogic.svelte';
+	import { Game, getCellColor } from '$lib/gameLogic.svelte';
 	import Time from './Time.svelte';
-	// TODO: Scaling factor
+	// TODO: Scaling factor: in the future, the rate may increase as time goes on
 	export const scrollRate = 1;
 	const rows = 14;
 	const cols = rows / 2;
@@ -19,7 +19,6 @@
 	const HEIGHT_PX = 48 * rows;
 	const WIDTH_PX = 48 * cols;
 
-	// TODO: in the future, the rate may increase as time goes on
 	let gameAlpha: Game = new Game(rows, cols, mines);
 	let gameBeta: Game = new Game(rows, cols, mines);
 	let alphaBoard = gameAlpha.board;
@@ -27,6 +26,7 @@
 	type BoardType = 'alpha' | 'beta';
 	let boardAlpha: HTMLDivElement;
 	let boardBeta: HTMLDivElement;
+
 	let globalTimerInitialized = false;
 	let globalScrollInitialized = false;
 	let globalGameOver = false;
@@ -64,6 +64,7 @@
 			stopTimer();
 		}
 	}
+
 	function handleCellClick(boardType: BoardType, row: number, col: number) {
 		if (invertControls) {
 			flag(boardType, row, col);
@@ -71,7 +72,6 @@
 			reveal(boardType, row, col);
 		}
 	}
-
 	function handleCellRightClick(event: MouseEvent, boardType: BoardType, row: number, col: number) {
 		event.preventDefault();
 		if (invertControls) {
@@ -81,31 +81,9 @@
 		}
 	}
 
-	function getCellColor(mineCount: number) {
-		switch (mineCount) {
-			case 1:
-				return 'text-blue-500';
-			case 2:
-				return 'text-green-500';
-			case 3:
-				return 'text-red-500';
-			case 4:
-				return 'text-purple-500';
-			case 5: // Maroon
-				return 'text-yellow-500';
-			case 6: // Teal
-				return 'text-yellow-500';
-			case 7:
-				return 'text-black';
-			case 8:
-				return 'text-slate-500';
-			default:
-				return '';
-		}
-	}
-	let startTime: number = 0;
+	let startTime = 0;
 	let timer: NodeJS.Timeout;
-	let elapsedTime: number = 0;
+	let elapsedTime = 0;
 	let invertControls = false;
 
 	function startTimer() {
@@ -139,14 +117,20 @@
 	const fpsInterval = 1000 / 24;
 	function scroll() {
 		if (globalGameOver) return;
+
 		const now = Date.now();
 		const elapsed = now - then;
 		if (elapsed > fpsInterval) {
+			// FPS throttling code stolen from https://stackoverflow.com/a/19772220
 			then = now - (elapsed % fpsInterval);
+			// Vertical scrolling animation from Llama3
 			let yPosAlpha = Number.parseInt(boardAlpha.style.top.replace('px', ''));
 			let yPosBeta = Number.parseInt(boardBeta.style.top.replace('px', ''));
 			yPosAlpha -= scrollRate;
 			yPosBeta -= scrollRate;
+			// I played with the values until it looked right
+			// so I can't really explain why it's -HEIGHT_PX, HEIGHT_PX,
+			// -HEIGHT_PX * 2, and 0
 			if (yPosAlpha <= -HEIGHT_PX) {
 				yPosAlpha = HEIGHT_PX;
 				gameAlpha = new Game(rows, cols, mines);
