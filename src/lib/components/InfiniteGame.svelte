@@ -12,10 +12,10 @@
 	import { Game } from '$lib/gameLogic.svelte';
 	import Time from './Time.svelte';
 	// TODO: Scaling factor
-	export let scrollRate = 1;
+	export const scrollRate = 1;
 	const rows = 14;
-	const cols = 9;
-	const mines = 32;
+	const cols = rows / 2;
+	const mines = Math.round(rows * cols * 0.2);
 	const HEIGHT_PX = 48 * rows;
 	const WIDTH_PX = 48 * cols;
 
@@ -169,18 +169,8 @@
 <Time milliseconds={elapsedTime} />
 <!-- I use flex for now because I can't deal with grid -->
 <div class="flex h-screen justify-evenly">
-	<div class="max-h-[42rem] max-w-[27rem] overflow-hidden border-8 border-black">
-		<!-- For the border only -->
-		<!-- <div class="absolute border-border">
-			{#each board as row}
-				<div class="flex">
-					{#each row as _}
-						<span class="h-8 w-8 border"></span>
-					{/each}
-				</div>
-			{/each}
-		</div> -->
-		<div bind:this={boardAlpha} class="relative" style="top:336px">
+	<div class="max-h-[{rows * 3}rem] max-w-[{cols * 3}rem] overflow-hidden border-8 border-black">
+		<div bind:this={boardAlpha} class="relative" style="top:{(48 * rows) / 2}px">
 			{#each alphaBoard as row, rowIndex}
 				<div class="flex">
 					{#each row as cell, colIndex}
@@ -205,7 +195,7 @@
 				</div>
 			{/each}
 		</div>
-		<div bind:this={boardBeta} class="relative" style="top:336px">
+		<div bind:this={boardBeta} class="relative" style="top:{(48 * rows) / 2}px">
 			{#each betaBoard as row, rowIndex}
 				<div class="flex">
 					{#each row as cell, colIndex}
