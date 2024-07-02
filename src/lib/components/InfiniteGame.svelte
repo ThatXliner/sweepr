@@ -75,7 +75,7 @@
 			reveal(boardType, row, col);
 		}
 	}
-	function handleCellRightClick(event: MouseEvent, boardType: BoardType, row: number, col: number) {
+	function handleCellRightClick(event: Event, boardType: BoardType, row: number, col: number) {
 		event.preventDefault();
 		if (invertControls) {
 			reveal(boardType, row, col);
@@ -174,6 +174,8 @@
 		// Request another animation frame to continue scrolling
 		requestAnimationFrame(scroll);
 	}
+	let touchStart = 0;
+	const TOUCH_DELAY = 500;
 </script>
 
 <Time milliseconds={elapsedTime} />
@@ -194,6 +196,12 @@
 								: getCellColor(cell.adjacentMines)}"
 							on:click={() => handleCellClick('alpha', rowIndex, colIndex)}
 							on:contextmenu={(event) => handleCellRightClick(event, 'alpha', rowIndex, colIndex)}
+							on:touchstart={() => {
+								touchStart = Date.now();
+							}}
+							on:touchend={(event) =>
+								Date.now() - touchStart >= TOUCH_DELAY &&
+								handleCellRightClick(event, 'alpha', rowIndex, colIndex)}
 						>
 							{cell.isRevealed && cell.isMine
 								? '💣'
@@ -219,6 +227,12 @@
 								: getCellColor(cell.adjacentMines)}"
 							on:click={() => handleCellClick('beta', rowIndex, colIndex)}
 							on:contextmenu={(event) => handleCellRightClick(event, 'beta', rowIndex, colIndex)}
+							on:touchstart={() => {
+								touchStart = Date.now();
+							}}
+							on:touchend={(event) =>
+								Date.now() - touchStart >= TOUCH_DELAY &&
+								handleCellRightClick(event, 'beta', rowIndex, colIndex)}
 						>
 							{cell.isRevealed && cell.isMine
 								? '💣'

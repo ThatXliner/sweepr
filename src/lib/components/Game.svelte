@@ -42,7 +42,7 @@
 		}
 	}
 
-	function handleCellRightClick(event: MouseEvent, row: number, col: number) {
+	function handleCellRightClick(event: Event, row: number, col: number) {
 		event.preventDefault();
 		if (invertControls) {
 			reveal(row, col);
@@ -93,6 +93,8 @@
 		clearInterval(timer);
 		elapsedTime = 0;
 	}
+	let touchStart = 0;
+	const TOUCH_DELAY = 500;
 </script>
 
 <Time milliseconds={elapsedTime} />
@@ -108,6 +110,10 @@
 							: 'bg-gray-200'} {cell.isFlagged ? 'text-red-500' : getCellColor(cell.adjacentMines)}"
 						on:click={() => handleCellClick(rowIndex, colIndex)}
 						on:contextmenu={(event) => handleCellRightClick(event, rowIndex, colIndex)}
+						on:touchstart={() => (touchStart = Date.now())}
+						on:touchend={(event) =>
+							Date.now() - touchStart >= TOUCH_DELAY &&
+							handleCellRightClick(event, rowIndex, colIndex)}
 					>
 						{cell.isRevealed && cell.isMine
 							? '💣'
