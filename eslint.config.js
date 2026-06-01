@@ -33,6 +33,7 @@ export default ts.config(
 		ignores: [
 			'build/',
 			'.svelte-kit/',
+			'.vercel/',
 			'package/',
 			'.env',
 			'.env.*',
