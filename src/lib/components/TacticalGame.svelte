@@ -13,6 +13,16 @@
 	import Time from './Time.svelte';
 	import Label from '$lib/components/ui/label/label.svelte';
 	import Switch from '$lib/components/ui/switch/switch.svelte';
+	import type { RealtimeChannel } from '@supabase/supabase-js';
+	import { makeNetworkDriver, broadcastMove, type Coord } from '$lib/net/networkDriver';
+
+	interface NetProps {
+		channel: RealtimeChannel;
+		memberId: string;
+		// Local slot index (0 = HUMAN) → the peer memberId driving it, or null for
+		// a bot. Slot 0 is always us. Built by the page from the match roster.
+		peerForSlot: Array<string | null> | null;
+	}
 
 	interface Props {
 		players?: number;
@@ -20,12 +30,13 @@
 		cols?: number;
 		// Mines each player places onto their opponents.
 		budget?: number;
+		net?: NetProps;
 	}
 
 	// Config is fixed for the match (the page never re-passes props). Tactical is
 	// a 16-player arena (tetr.io-style): you in the centre, everyone else on the
 	// flanks. Bots fill any slots not taken by humans.
-	let { players = 16, rows = 9, cols = 9, budget = 10 }: Props = $props();
+	let { players = 16, rows = 9, cols = 9, budget = 10, net }: Props = $props();
 
 	type Phase = 'placing' | 'sweeping' | 'done';
 	let phase = $state<Phase>('placing');
@@ -120,24 +131,86 @@
 		}
 	}
 
-	function startSweep() {
-		botsPlace();
-		// Build each player's board from the mines others placed on them.
+	// Online: which human peers have sent their placement yet (memberId set).
+	// eslint-disable-next-line svelte/prefer-svelte-reactivity
+	const placementsReceived = new Set<string>();
+	let humanPeers: string[] = [];
+
+	// `myByTarget`: where I dropped mines, keyed by target slot. Built from
+	// `placements` (only the human places interactively).
+	function myPlacementByTarget(): Record<number, Coord[]> {
+		const out: Record<number, Coord[]> = {};
+		for (const [target, coords] of placements) {
+			if (target !== HUMAN && coords.length) out[target] = coords.map(([r, c]) => [r, c]);
+		}
+		return out;
+	}
+
+	function onReady() {
+		if (!net) {
+			startSweep();
+			return;
+		}
+		// Online: broadcast my placement, then wait for every human peer's before
+		// building boards (bots' placement is generated locally at build time).
+		humanPeers = (net.peerForSlot ?? []).filter((p): p is string => !!p);
+		broadcastMove(net.channel, {
+			kind: 'placement',
+			from: net.memberId,
+			byTarget: myPlacementByTarget()
+		});
+		phase = 'sweeping'; // shows a "waiting" state until placements arrive
+		maybeStartSweep();
+	}
+
+	function maybeStartSweep() {
+		if (!net || games.length) return; // already built
+		if (humanPeers.some((p) => !placementsReceived.has(p))) return; // still waiting
+		buildBoards();
+	}
+
+	function buildBoards() {
+		botsPlace(); // fills bot slots' placements (humans' arrived over the network)
 		games = ids.map((id) => Game.fromMines(rows, cols, placements.get(id) ?? []));
 		boards = games.map((g) => g.board);
 		alive = ids.map(() => true);
 		cleared = ids.map(() => 0);
-		phase = 'sweeping';
-
 		startTime = Date.now();
 		timer = setInterval(() => (elapsed = Date.now() - startTime), 100);
-
-		// Drive the bot players.
 		bots = ids.map((id) => (id === HUMAN ? { start() {}, stop() {} } : makeBot(id)));
 		bots.forEach((b) => b.start());
 	}
 
+	function startSweep() {
+		phase = 'sweeping';
+		buildBoards();
+	}
+
 	function makeBot(id: number): OpponentDriver {
+		const peer = net?.peerForSlot?.[id] ?? null;
+		if (peer) {
+			// A human peer drives this slot over the network.
+			return makeNetworkDriver(games[id], net!.channel, peer, {
+				onChange: () => {
+					boards[id] = games[id].board;
+					boards = [...boards];
+					checkPlayer(id);
+				},
+				onReveal: (r, c) => games[id].revealCell(r, c),
+				onFlag: (r, c) => games[id].flagCell(r, c),
+				onDead: () => {
+					if (!alive[id]) return;
+					alive[id] = false;
+					alive = [...alive];
+					evaluate();
+				},
+				onNewBoard: (mines) => {
+					games[id] = Game.fromMines(rows, cols, mines);
+					boards[id] = games[id].board;
+					boards = [...boards];
+				}
+			});
+		}
 		return makeTacticalBot(games[id], {
 			...botSpeed(id),
 			onChange: () => {
@@ -162,16 +235,20 @@
 
 	function checkPlayer(id: number) {
 		if (!alive[id]) return;
+		const networkDriven = !!net?.peerForSlot?.[id];
 		if (games[id].checkLose()) {
-			alive[id] = false;
-			alive = [...alive];
-			bots[id]?.stop();
+			// A network peer announces its own death via `dead`; don't double-count.
+			if (!networkDriven) {
+				alive[id] = false;
+				alive = [...alive];
+				bots[id]?.stop();
+			}
 		} else if (games[id].checkWin()) {
-			// Cleared the board: survive and get a fresh, harder one to keep
-			// sweeping. The match only ends by elimination.
 			cleared[id]++;
 			cleared = [...cleared];
-			regenerateBoard(id);
+			// A network peer rebuilds its own board and broadcasts `newboard`; we
+			// only regenerate boards we own (ours + local bots').
+			if (!networkDriven) regenerateBoard(id);
 		}
 		evaluate();
 	}
@@ -182,21 +259,52 @@
 		games[id] = fresh;
 		boards[id] = fresh.board;
 		boards = [...boards];
-		// The bot held a reference to the old board, so re-point it at the new one.
-		if (id !== HUMAN) {
+		// Online: only the board's owner regenerates and broadcasts the new mines;
+		// peers rebuild from the `newboard` message via the network driver. So a
+		// network-driven slot never regenerates locally.
+		if (id === HUMAN && net) {
+			const mines: Coord[] = [];
+			for (let r = 0; r < rows; r++)
+				for (let c = 0; c < cols; c++) if (fresh.board[r][c].isMine) mines.push([r, c]);
+			broadcastMove(net.channel, { kind: 'newboard', from: net.memberId, mines });
+		}
+		// Local bots hold a reference to the old board; re-point them at the new one.
+		if (id !== HUMAN && !net?.peerForSlot?.[id]) {
 			bots[id]?.stop();
 			bots[id] = makeBot(id);
 			bots[id].start();
 		}
 	}
 
-	// A correct flag sends a mine to every other living player's board, dropped
-	// on a covered cell with no revealed neighbor so no visible number changes.
+	// A correct flag sends a mine to every other living player's board, dropped on
+	// a covered cell with no revealed neighbor so no visible number changes.
+	// Online, the attacker picks each cell and broadcasts it so every client
+	// injects at the SAME spot (random would desync).
 	function sendMineToOpponents(fromId: number) {
+		const chosen: Record<number, Coord> = {};
 		for (const id of ids) {
 			if (id === fromId || !alive[id]) continue;
-			games[id].injectMine();
+			const cell = games[id].injectMine();
+			if (cell) {
+				chosen[id] = cell;
+				boards[id] = games[id].board;
+			}
+		}
+		boards = [...boards];
+		if (net && fromId === HUMAN) {
+			broadcastMove(net.channel, { kind: 'attack', from: net.memberId, cells: chosen });
+		}
+	}
+
+	// Apply an attack a peer broadcast: inject at the exact cells they chose.
+	function applyAttack(cells: Record<number, Coord>) {
+		for (const key of Object.keys(cells)) {
+			const id = Number(key);
+			if (!alive[id]) continue;
+			const [r, c] = cells[id];
+			games[id].injectMineAt(r, c);
 			boards[id] = games[id].board;
+			checkPlayer(id);
 		}
 		boards = [...boards];
 	}
@@ -235,17 +343,22 @@
 	}
 
 	function reveal(row: number, col: number) {
-		if (phase !== 'sweeping' || !alive[HUMAN]) return;
+		if (phase !== 'sweeping' || !alive[HUMAN] || !games.length) return;
 		boards[HUMAN] = games[HUMAN].revealCell(row, col);
 		boards = [...boards];
+		if (net) broadcastMove(net.channel, { kind: 'reveal', from: net.memberId, r: row, c: col });
 		checkPlayer(HUMAN);
+		if (net && games[HUMAN].checkLose()) {
+			broadcastMove(net.channel, { kind: 'dead', from: net.memberId });
+		}
 	}
 	function flag(row: number, col: number) {
-		if (phase !== 'sweeping' || !alive[HUMAN]) return;
+		if (phase !== 'sweeping' || !alive[HUMAN] || !games.length) return;
 		const cell = games[HUMAN].board[row][col];
 		const wasFlagged = cell.isFlagged;
 		boards[HUMAN] = games[HUMAN].flagCell(row, col);
 		boards = [...boards];
+		if (net) broadcastMove(net.channel, { kind: 'flag', from: net.memberId, r: row, c: col });
 		// Correctly flagging a mine (newly flagged, actually a mine) sends a mine
 		// to every opponent.
 		if (!wasFlagged && cell.isFlagged && cell.isMine) {
@@ -262,7 +375,42 @@
 		else flag(row, col);
 	}
 
+	// Map a peer memberId back to its local slot index.
+	function slotForPeer(peer: string): number {
+		return net?.peerForSlot?.findIndex((p) => p === peer) ?? -1;
+	}
+
 	$effect(() => {
+		if (net) {
+			net.channel.on('broadcast', { event: 'move' }, ({ payload }) => {
+				if (payload.from === net.memberId) return;
+				if (payload.kind === 'placement') {
+					// Merge a peer's placement coords into the shared placements map.
+					for (const key of Object.keys(payload.byTarget)) {
+						const target = Number(key);
+						const list = placements.get(target);
+						if (list) list.push(...payload.byTarget[target]);
+					}
+					placements = new Map(placements);
+					placementsReceived.add(payload.from);
+					maybeStartSweep();
+				} else if (payload.kind === 'attack') {
+					applyAttack(payload.cells);
+				}
+			});
+			net.channel.on('presence', { event: 'leave' }, ({ leftPresences }) => {
+				const left = leftPresences as Array<{ memberId?: string }>;
+				for (const p of left) {
+					const slot = p.memberId ? slotForPeer(p.memberId) : -1;
+					if (slot >= 0 && alive[slot]) {
+						alive[slot] = false;
+						alive = [...alive];
+						bots[slot]?.stop();
+					}
+				}
+				if (games.length) evaluate();
+			});
+		}
 		return () => {
 			clearInterval(timer);
 			bots.forEach((b) => b.stop());
@@ -288,7 +436,10 @@
 				<strong>Attack:</strong> correctly flag a mine and you send a hidden mine to every opponent's
 				board. Clear your whole board and you get a fresh, harder one.
 			</p>
-			<p>Last sweeper alive wins. Opponents are bots for now; online play is coming.</p>
+			<p>
+				Last sweeper alive wins. {#if net}You're in a live 16-player match.{:else}Opponents are
+					bots.{/if}
+			</p>
 		</ModeInfo>
 	</div>
 	{#if phase === 'placing'}
@@ -328,10 +479,13 @@
 		</div>
 		<button
 			class="rounded-md bg-red-600 px-4 py-2 font-bold text-white shadow transition-transform hover:scale-105 hover:bg-red-700 focus-visible:ring-4 focus-visible:ring-red-400 focus-visible:outline-none"
-			onclick={startSweep}
+			onclick={onReady}
 		>
 			Ready — start sweeping
 		</button>
+	{:else if !games.length}
+		<!-- Online: placed our mines, waiting for opponents to ready up. -->
+		<p class="text-lg">Waiting for opponents…</p>
 	{:else}
 		<Time milliseconds={elapsed} />
 		{#if phase === 'done'}
