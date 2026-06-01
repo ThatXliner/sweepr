@@ -163,7 +163,6 @@
 					return;
 				}
 			}
-			console.log(alphaRowsGone, betaRowsGone);
 			boardAlpha.style.transform = `translateY(${yPosAlpha}px)`;
 			boardBeta.style.transform = `translateY(${yPosBeta}px)`;
 		}
