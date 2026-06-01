@@ -1,4 +1,4 @@
-import adapter from '@sveltejs/adapter-auto';
+import adapter from '@sveltejs/adapter-vercel';
 import { vitePreprocess } from '@sveltejs/vite-plugin-svelte';
 
 /** @type {import('@sveltejs/kit').Config} */
@@ -8,10 +8,12 @@ const config = {
 	preprocess: [vitePreprocess({})],
 
 	kit: {
-		// adapter-auto only supports some environments, see https://kit.svelte.dev/docs/adapter-auto for a list.
-		// If your environment is not supported or you settled on a specific environment, switch out the adapter.
-		// See https://kit.svelte.dev/docs/adapters for more information about adapters.
-		adapter: adapter()
+		// Pin the Vercel adapter explicitly. adapter-auto downloads the adapter
+		// (and its @vercel/nft) at build time, which resolved a stale nft that
+		// could not CJS-require the ESM-only estree-walker v3 and broke the build.
+		// Pin the runtime too: the adapter's auto-detect rejects unsupported local
+		// Node versions, and this keeps the Vercel function runtime deterministic.
+		adapter: adapter({ runtime: 'nodejs22.x' })
 	}
 };
 

@@ -1,4 +1,10 @@
-# Ignore files for PNPM, NPM and YARN
+# Ignore files for PNPM, NPM, YARN and Bun
 pnpm-lock.yaml
 package-lock.json
 yarn.lock
+bun.lock
+
+# Build output
+.svelte-kit
+.vercel
+build
