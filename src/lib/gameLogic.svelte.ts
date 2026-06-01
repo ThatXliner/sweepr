@@ -5,7 +5,22 @@ export interface Cell {
 	adjacentMines: number;
 }
 
+import { xoroshiro128plus } from 'pure-rand/generator/xoroshiro128plus';
+import { uniformInt } from 'pure-rand/distribution/uniformInt';
+
 export type Board = Cell[][];
+
+/**
+ * Returns a `(max) => int in [0, max)` function. When a seed is given it draws
+ * from pure-rand's xoroshiro128+ so two players can get equally-difficult — or,
+ * with the same seed, identical — boards; otherwise it falls back to the global
+ * Math.random().
+ */
+function makeRandInt(seed: number | undefined): (max: number) => number {
+	if (seed === undefined) return (max) => Math.floor(Math.random() * max);
+	const rng = xoroshiro128plus(seed);
+	return (max) => uniformInt(rng, 0, max - 1);
+}
 
 export class Game {
 	public board: Board;
@@ -15,12 +30,28 @@ export class Game {
 	public mines: number;
 	public flags: number = $state(0);
 
-	constructor(rows: number, cols: number, mines: number) {
-		this.board = this.generateBoard(rows, cols, mines);
+	constructor(rows: number, cols: number, mines: number, seed?: number) {
+		this.board = this.generateBoard(rows, cols, mines, seed);
 		this.rows = rows;
 		this.cols = cols;
 		this.mines = mines;
 		this.flags = mines;
+	}
+
+	/**
+	 * Build a Game from an explicit set of mine coordinates instead of random
+	 * placement. Used by Tactical, where opponents author each other's mines.
+	 */
+	public static fromMines(rows: number, cols: number, mineCoords: Array<[number, number]>): Game {
+		const game = new Game(rows, cols, 0);
+		const board = game.board;
+		for (const [row, col] of mineCoords) {
+			board[row][col].isMine = true;
+		}
+		game.computeAdjacency(board);
+		game.mines = mineCoords.length;
+		game.flags = mineCoords.length;
+		return game;
 	}
 	public getBoard(): Board {
 		return this.board;
@@ -81,7 +112,7 @@ export class Game {
 		return this.board;
 	}
 
-	public generateBoard(rows: number, cols: number, mines: number): Board {
+	public generateBoard(rows: number, cols: number, mines: number, seed?: number): Board {
 		const board: Board = Array(rows)
 			.fill(null)
 			.map(() =>
@@ -96,15 +127,26 @@ export class Game {
 						})
 					)
 			);
+		// Seeded when a seed is given (so boards can be reproducible/equal across
+		// players), otherwise the original global-random behavior.
+		const randInt = makeRandInt(seed);
 		let minesPlaced = 0;
 		while (minesPlaced < mines) {
-			const row = Math.floor(Math.random() * rows);
-			const col = Math.floor(Math.random() * cols);
+			const row = randInt(rows);
+			const col = randInt(cols);
 			if (!board[row][col].isMine) {
 				board[row][col].isMine = true;
 				minesPlaced++;
 			}
 		}
+		this.computeAdjacency(board);
+		return board;
+	}
+
+	/** Fill in each non-mine cell's adjacentMines from the placed mines. */
+	private computeAdjacency(board: Board): void {
+		const rows = board.length;
+		const cols = board[0].length;
 		for (let row = 0; row < rows; row++) {
 			for (let col = 0; col < cols; col++) {
 				if (board[row][col].isMine) continue;
@@ -117,7 +159,6 @@ export class Game {
 				board[row][col].adjacentMines = count;
 			}
 		}
-		return board;
 	}
 }
 export function getCellColor(mineCount: number) {
