@@ -7,6 +7,11 @@ async function openBlitzBotGame(page: Page) {
 	await page.getByRole('button', { name: 'Play vs bot' }).click();
 }
 
+async function openTacticalBotGame(page: Page) {
+	await page.goto('/tactical');
+	await page.getByRole('button', { name: 'Play vs bots' }).click();
+}
+
 test('landing page shows the three modes', async ({ page }) => {
 	await page.goto('/');
 	await expect(page.getByRole('heading', { name: 'sweepr' })).toBeVisible();
@@ -37,7 +42,7 @@ test('blitz: clicking starts the match and the bot opponent sweeps', async ({ pa
 });
 
 test('tactical: place a mine, ready, then sweep phase begins', async ({ page }) => {
-	await page.goto('/tactical');
+	await openTacticalBotGame(page);
 	await expect(page.getByText('Place your mines')).toBeVisible();
 	await expect(page.getByText('Mines left:')).toContainText('10');
 
@@ -91,7 +96,7 @@ test('blitz: flagging marks a hidden cell and invert controls swaps actions', as
 });
 
 test('tactical: bots sweep and start getting eliminated', async ({ page }) => {
-	await page.goto('/tactical');
+	await openTacticalBotGame(page);
 	// Spend all 10 mines on the first opponent to densely mine its board.
 	const oppCells = page.locator('button.h-7:not(.rounded-full)');
 	for (let i = 0; i < 10; i++) await oppCells.nth(i).click();
@@ -106,7 +111,7 @@ test('tactical: bots sweep and start getting eliminated', async ({ page }) => {
 });
 
 test('tactical: opponent boards are not clickable during the sweep', async ({ page }) => {
-	await page.goto('/tactical');
+	await openTacticalBotGame(page);
 	const cells = page.locator('button.h-7:not(.rounded-full)');
 	for (let i = 0; i < 10; i++) await cells.nth(i).click();
 	await page.getByRole('button', { name: /Ready/ }).click();
@@ -124,6 +129,7 @@ for (const { path, mode, blurb } of [
 ]) {
 	test(`${path}: info button explains how ${mode} works`, async ({ page }) => {
 		if (path === '/blitz') await openBlitzBotGame(page);
+		else if (path === '/tactical') await openTacticalBotGame(page);
 		else await page.goto(path);
 		// The blurb lives in a popover that's closed until the button is clicked.
 		await expect(page.getByText(blurb)).toBeHidden();
@@ -135,6 +141,7 @@ for (const { path, mode, blurb } of [
 for (const path of ['/blitz', '/tactical']) {
 	test(`${path}: difficulty can be set before the match`, async ({ page }) => {
 		if (path === '/blitz') await openBlitzBotGame(page);
+		else if (path === '/tactical') await openTacticalBotGame(page);
 		else await page.goto(path);
 		const select = page.getByLabel('Bot difficulty');
 		await expect(select).toBeVisible();
