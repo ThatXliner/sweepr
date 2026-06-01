@@ -22,18 +22,26 @@
 		budget?: number;
 	}
 
-	// Config is fixed for the match (the page never re-passes props).
-	let { players = 4, rows = 9, cols = 9, budget = 10 }: Props = $props();
+	// Config is fixed for the match (the page never re-passes props). Tactical is
+	// a 16-player arena (tetr.io-style): you in the centre, everyone else on the
+	// flanks. Bots fill any slots not taken by humans.
+	let { players = 16, rows = 9, cols = 9, budget = 10 }: Props = $props();
 
 	type Phase = 'placing' | 'sweeping' | 'done';
 	let phase = $state<Phase>('placing');
 	// Bot speed tier, chosen before the match in the placing phase.
 	let difficulty = $state<Difficulty>('medium');
 
-	// Player 0 is the human; 1..N-1 are bots.
+	// Player 0 is the human; 1..N-1 are opponents (bots or, online, peers).
 	// svelte-ignore state_referenced_locally
 	const ids = Array.from({ length: players }, (_, i) => i);
 	const HUMAN = 0;
+
+	// Opponents split into two flanks for the tetr.io-style sweep layout.
+	const opponentIds = ids.filter((id) => id !== HUMAN);
+	const half = Math.ceil(opponentIds.length / 2);
+	const leftFlank = opponentIds.slice(0, half);
+	const rightFlank = opponentIds.slice(half);
 
 	// Mines authored ON each player's board, keyed by target id. Accumulated from
 	// every other player during placement; consumed by Game.fromMines at build.
@@ -336,27 +344,58 @@
 				Last sweeper alive wins.
 			</p>
 		{/if}
-		<div class="flex flex-wrap items-start justify-center gap-8">
-			{#each ids as id (id)}
-				<div class="flex flex-col items-center gap-1" class:opacity-50={!alive[id]}>
-					<h3 class="font-semibold {id === HUMAN ? '' : 'text-red-600 dark:text-red-400'}">
-						{id === HUMAN ? 'You' : `Opponent ${id}`} — {clearedCount(boards[id])}
-						{#if cleared[id] > 0}
-							<span class="text-xs font-normal text-muted-foreground">({cleared[id]} cleared)</span>
-						{/if}
-					</h3>
-					<Board_
-						board={boards[id]}
-						interactive={id === HUMAN && phase === 'sweeping' && alive[HUMAN]}
-						{onCell}
-						{onCellAlt}
-						cellSize="h-7 w-7"
-						unrevealedBg={id === HUMAN ? undefined : 'bg-red-500/20'}
-						label={id === HUMAN ? 'Your board' : `Opponent ${id}'s board`}
-					/>
-					<span class="text-sm text-muted-foreground">{alive[id] ? 'alive' : 'eliminated'}</span>
-				</div>
-			{/each}
+		{#snippet miniBoard(id: number)}
+			<div
+				class="relative flex flex-col items-center gap-0.5"
+				class:opacity-40={!alive[id]}
+				title="Opponent {id} — {clearedCount(boards[id])} cleared{alive[id] ? '' : ' (eliminated)'}"
+			>
+				<Board_
+					board={boards[id]}
+					interactive={false}
+					cellSize="h-2 w-2"
+					unrevealedBg="bg-red-500/20"
+					label="Opponent {id}'s board"
+				/>
+				{#if !alive[id]}
+					<span class="absolute inset-0 flex items-center justify-center text-lg">💀</span>
+				{/if}
+			</div>
+		{/snippet}
+
+		<!-- tetr.io-style arena: your board centred and large, the 15 opponents as
+			tiny live boards down the left and right flanks. -->
+		<div class="flex w-full items-start justify-center gap-4">
+			<div class="flex flex-wrap content-start justify-end gap-2" style="max-width:22rem">
+				{#each leftFlank as id (id)}
+					{@render miniBoard(id)}
+				{/each}
+			</div>
+
+			<div class="flex shrink-0 flex-col items-center gap-1" class:opacity-50={!alive[HUMAN]}>
+				<h3 class="font-semibold">
+					You — {clearedCount(boards[HUMAN])}
+					{#if cleared[HUMAN] > 0}
+						<span class="text-xs font-normal text-muted-foreground">({cleared[HUMAN]} cleared)</span
+						>
+					{/if}
+				</h3>
+				<Board_
+					board={boards[HUMAN]}
+					interactive={phase === 'sweeping' && alive[HUMAN]}
+					{onCell}
+					{onCellAlt}
+					cellSize="h-7 w-7"
+					label="Your board"
+				/>
+				<span class="text-sm text-muted-foreground">{alive[HUMAN] ? 'alive' : 'eliminated'}</span>
+			</div>
+
+			<div class="flex flex-wrap content-start justify-start gap-2" style="max-width:22rem">
+				{#each rightFlank as id (id)}
+					{@render miniBoard(id)}
+				{/each}
+			</div>
 		</div>
 		{#if phase === 'sweeping'}
 			<div class="flex items-center gap-2 text-sm">
