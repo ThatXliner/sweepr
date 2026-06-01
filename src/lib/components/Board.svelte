@@ -51,7 +51,12 @@
 <!-- Container-level guard: any right-click inside the board (even a hairline
 	gap between buttons) is suppressed so the browser menu never pops, and the
 	whole area is treated as the board. -->
-<div oncontextmenu={(e) => e.preventDefault()} role="grid" tabindex="-1">
+<div
+	class:pointer-events-none={!interactive}
+	oncontextmenu={(e) => e.preventDefault()}
+	role="grid"
+	tabindex="-1"
+>
 	{#each board as row, rowIndex (rowIndex)}
 		<div class="flex">
 			{#each row as cell, colIndex (colIndex)}

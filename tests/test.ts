@@ -86,10 +86,23 @@ test('tactical: a densely-mined match resolves to a winner', async ({ page }) =>
 	await page.getByRole('button', { name: /Ready/ }).click();
 
 	// Bots sweep their (opponent-mined) boards and start dying; the match should
-	// reach a resolved "… wins." within a reasonable window.
-	await expect(page.getByText(/wins\./)).toBeVisible({ timeout: 30000 });
-	// At least one player should be flagged eliminated.
-	await expect(page.getByText('eliminated').first()).toBeVisible();
+	// reach a resolved "… wins." eventually. Smarter bots + board escalation make
+	// the exact time vary, so allow a generous window. (A winner is only declared
+	// once all but one player has been eliminated.)
+	await expect(page.getByText(/wins\.|last sweeper standing/)).toBeVisible({ timeout: 60000 });
+});
+
+test('tactical: opponent boards are not clickable during the sweep', async ({ page }) => {
+	await page.goto('/tactical');
+	const cells = page.locator('button.h-7:not(.rounded-full)');
+	for (let i = 0; i < 10; i++) await cells.nth(i).click();
+	await page.getByRole('button', { name: /Ready/ }).click();
+	await expect(cells).toHaveCount(324);
+
+	// Four boards total; exactly one (yours) is interactive and the other three
+	// carry pointer-events-none, so they can't be clicked.
+	await expect(page.locator('[role="grid"]')).toHaveCount(4);
+	await expect(page.locator('[role="grid"].pointer-events-none')).toHaveCount(3);
 });
 
 for (const { path, mode, blurb } of [

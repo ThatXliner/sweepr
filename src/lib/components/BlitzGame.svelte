@@ -218,14 +218,7 @@
 
 		<div class="flex flex-col items-center gap-1">
 			<h3 class="font-semibold">Opponent — {oppScore} cleared</h3>
-			<div class="pointer-events-none">
-				<Board_
-					board={oppBoard}
-					interactive={false}
-					cellSize="h-6 w-6"
-					unrevealedBg="bg-blue-200"
-				/>
-			</div>
+			<Board_ board={oppBoard} interactive={false} cellSize="h-6 w-6" unrevealedBg="bg-blue-200" />
 			<span class="mt-1 text-sm text-gray-500">{oppAlive ? 'sweeping…' : 'eliminated'}</span>
 		</div>
 	</div>
