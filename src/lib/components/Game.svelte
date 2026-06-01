@@ -4,11 +4,15 @@
 	import { Game } from '$lib/gameLogic.svelte';
 	import Time from './Time.svelte';
 
-	export let rows = 16;
-	export let cols = 30;
-	export let mines = 99;
-	let game: Game = new Game(rows, cols, mines);
-	let board = game.board;
+	interface Props {
+		rows?: number;
+		cols?: number;
+		mines?: number;
+	}
+
+	let { rows = 16, cols = 30, mines = 99 }: Props = $props();
+	let game: Game = $state(new Game(rows, cols, mines));
+	let board = $state(game.board);
 	function reveal(row: number, col: number) {
 		// Guarantee that the first cell clicked is not a mine.
 		// For some reason, this has to be done in the click handler
@@ -74,9 +78,9 @@
 		}
 	}
 	let startTime: number = 0;
-	let timer: NodeJS.Timeout;
-	let elapsedTime: number = 0;
-	let invertControls = false;
+	let timer: ReturnType<typeof setInterval>;
+	let elapsedTime: number = $state(0);
+	let invertControls = $state(false);
 
 	function startTimer() {
 		startTime = Date.now();
@@ -88,12 +92,7 @@
 	function stopTimer() {
 		clearInterval(timer);
 	}
-
-	function resetTimer() {
-		clearInterval(timer);
-		elapsedTime = 0;
-	}
-	let touchStart = 0;
+	let touchStart = $state(0);
 	const TOUCH_DELAY = 500;
 </script>
 
@@ -101,17 +100,17 @@
 <!-- I use flex for now because I can't deal with grid -->
 <div class="flex h-screen items-center justify-evenly">
 	<div>
-		{#each board as row, rowIndex}
+		{#each board as row, rowIndex (rowIndex)}
 			<div class="flex">
-				{#each row as cell, colIndex}
+				{#each row as cell, colIndex (colIndex)}
 					<button
 						class="h-8 w-8 border border-gray-400 {cell.isRevealed
 							? 'bg-white'
 							: 'bg-gray-200'} {cell.isFlagged ? 'text-red-500' : getCellColor(cell.adjacentMines)}"
-						on:click={() => handleCellClick(rowIndex, colIndex)}
-						on:contextmenu={(event) => handleCellRightClick(event, rowIndex, colIndex)}
-						on:touchstart={() => (touchStart = Date.now())}
-						on:touchend={(event) =>
+						onclick={() => handleCellClick(rowIndex, colIndex)}
+						oncontextmenu={(event) => handleCellRightClick(event, rowIndex, colIndex)}
+						ontouchstart={() => (touchStart = Date.now())}
+						ontouchend={(event) =>
 							Date.now() - touchStart >= TOUCH_DELAY &&
 							handleCellRightClick(event, rowIndex, colIndex)}
 					>

@@ -21,11 +21,11 @@
 
 	let gameAlpha: Game = new Game(rows, cols, mines);
 	let gameBeta: Game = new Game(rows, cols, mines);
-	let alphaBoard = gameAlpha.board;
-	let betaBoard = gameBeta.board;
+	let alphaBoard = $state(gameAlpha.board);
+	let betaBoard = $state(gameBeta.board);
 	type BoardType = 'alpha' | 'beta';
-	let boardAlpha: HTMLDivElement;
-	let boardBeta: HTMLDivElement;
+	let boardAlpha: HTMLDivElement | undefined = $state();
+	let boardBeta: HTMLDivElement | undefined = $state();
 
 	let globalTimerInitialized = false;
 	let globalScrollInitialized = false;
@@ -85,9 +85,9 @@
 	}
 
 	let startTime = 0;
-	let timer: NodeJS.Timeout;
-	let elapsedTime = 0;
-	let invertControls = false;
+	let timer: ReturnType<typeof setInterval>;
+	let elapsedTime = $state(0);
+	let invertControls = $state(false);
 
 	function startTimer() {
 		// Only initialize once
@@ -105,10 +105,6 @@
 		clearInterval(timer);
 	}
 
-	function resetTimer() {
-		clearInterval(timer);
-		elapsedTime = 0;
-	}
 	let then = 0;
 	function startInfiniteScroll() {
 		// Only initialize once
@@ -125,6 +121,7 @@
 	}
 	function scroll() {
 		if (globalGameOver) return;
+		if (!boardAlpha || !boardBeta) return;
 		const now = Date.now();
 		const elapsed = now - then;
 		if (elapsed > fpsInterval) {
@@ -174,7 +171,7 @@
 		// Request another animation frame to continue scrolling
 		requestAnimationFrame(scroll);
 	}
-	let touchStart = 0;
+	let touchStart = $state(0);
 	const TOUCH_DELAY = 500;
 </script>
 
@@ -185,21 +182,21 @@
 	<div class="relative max-h-[42rem] max-w-[21rem] overflow-hidden border-8 border-black">
 		<div class="absolute top-0 z-10 h-6 w-full bg-red-500 text-center">DEATH.</div>
 		<div bind:this={boardAlpha} style="transform:translateY({(48 * rows) / 2}px)">
-			{#each alphaBoard as row, rowIndex}
+			{#each alphaBoard as row, rowIndex (rowIndex)}
 				<div class="flex">
-					{#each row as cell, colIndex}
+					{#each row as cell, colIndex (colIndex)}
 						<button
 							class="h-12 w-12 border border-gray-400 {cell.isRevealed
 								? 'bg-white'
 								: 'bg-gray-200'} {cell.isFlagged
 								? 'text-red-500'
 								: getCellColor(cell.adjacentMines)}"
-							on:click={() => handleCellClick('alpha', rowIndex, colIndex)}
-							on:contextmenu={(event) => handleCellRightClick(event, 'alpha', rowIndex, colIndex)}
-							on:touchstart={() => {
+							onclick={() => handleCellClick('alpha', rowIndex, colIndex)}
+							oncontextmenu={(event) => handleCellRightClick(event, 'alpha', rowIndex, colIndex)}
+							ontouchstart={() => {
 								touchStart = Date.now();
 							}}
-							on:touchend={(event) =>
+							ontouchend={(event) =>
 								Date.now() - touchStart >= TOUCH_DELAY &&
 								handleCellRightClick(event, 'alpha', rowIndex, colIndex)}
 						>
@@ -216,21 +213,21 @@
 			{/each}
 		</div>
 		<div bind:this={boardBeta} style="transform:translateY({(48 * rows) / 2}px)">
-			{#each betaBoard as row, rowIndex}
+			{#each betaBoard as row, rowIndex (rowIndex)}
 				<div class="flex">
-					{#each row as cell, colIndex}
+					{#each row as cell, colIndex (colIndex)}
 						<button
 							class="h-12 w-12 border border-gray-400 {cell.isRevealed
 								? 'bg-white'
 								: 'bg-blue-200'} {cell.isFlagged
 								? 'text-red-500'
 								: getCellColor(cell.adjacentMines)}"
-							on:click={() => handleCellClick('beta', rowIndex, colIndex)}
-							on:contextmenu={(event) => handleCellRightClick(event, 'beta', rowIndex, colIndex)}
-							on:touchstart={() => {
+							onclick={() => handleCellClick('beta', rowIndex, colIndex)}
+							oncontextmenu={(event) => handleCellRightClick(event, 'beta', rowIndex, colIndex)}
+							ontouchstart={() => {
 								touchStart = Date.now();
 							}}
-							on:touchend={(event) =>
+							ontouchend={(event) =>
 								Date.now() - touchStart >= TOUCH_DELAY &&
 								handleCellRightClick(event, 'beta', rowIndex, colIndex)}
 						>
