@@ -201,25 +201,9 @@ export class Game {
 		return true;
 	}
 }
+// Maps an adjacent-mine count to its number-color class. The `num-N` classes
+// (defined in app.css) read from tokens, so they automatically follow the
+// active light/dark theme and the colorblind-safe palette toggle.
 export function getCellColor(mineCount: number) {
-	switch (mineCount) {
-		case 1:
-			return 'text-blue-500';
-		case 2:
-			return 'text-green-500';
-		case 3:
-			return 'text-red-500';
-		case 4:
-			return 'text-purple-500';
-		case 5: // Maroon
-			return 'text-yellow-500';
-		case 6: // Teal
-			return 'text-yellow-500';
-		case 7:
-			return 'text-black';
-		case 8:
-			return 'text-slate-500';
-		default:
-			return '';
-	}
+	return mineCount >= 1 && mineCount <= 8 ? `num-${mineCount}` : '';
 }

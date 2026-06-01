@@ -4,6 +4,21 @@
 		<meta charset="utf-8" />
 		<link rel="icon" href="%sveltekit.assets%/favicon.png" />
 		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<script>
+			// Apply theme + colorblind classes before first paint to avoid a flash
+			// of the wrong theme. Mirrors src/lib/theme.svelte.ts; kept inline and
+			// dependency-free so it runs synchronously in <head>.
+			(function () {
+				try {
+					var t =
+						localStorage.getItem('sweepr:theme') ||
+						(window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+					if (t === 'dark') document.documentElement.classList.add('dark');
+					if (localStorage.getItem('sweepr:colorblind') === 'on')
+						document.documentElement.classList.add('cb');
+				} catch (e) {}
+			})();
+		</script>
 		%sveltekit.head%
 	</head>
 	<body data-sveltekit-preload-data="hover">
