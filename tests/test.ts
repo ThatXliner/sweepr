@@ -1,4 +1,11 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
+
+// Blitz now opens on a Find-match / Play-vs-bot menu; most tests want the local
+// bot game.
+async function openBlitzBotGame(page: Page) {
+	await page.goto('/blitz');
+	await page.getByRole('button', { name: 'Play vs bot' }).click();
+}
 
 test('landing page shows the three modes', async ({ page }) => {
 	await page.goto('/');
@@ -16,7 +23,7 @@ test('classic renders the easy board', async ({ page }) => {
 });
 
 test('blitz: clicking starts the match and the bot opponent sweeps', async ({ page }) => {
-	await page.goto('/blitz');
+	await openBlitzBotGame(page);
 	// Two 16x16 boards = 512 cells.
 	await expect(page.locator('button.h-6:not(.rounded-full)')).toHaveCount(512);
 	await expect(page.getByText(/Opponent — 0 cleared/)).toBeVisible();
@@ -46,20 +53,20 @@ test('tactical: place a mine, ready, then sweep phase begins', async ({ page }) 
 });
 
 test('blitz: flagging marks a hidden cell and invert controls swaps actions', async ({ page }) => {
-	await page.goto('/blitz');
+	await openBlitzBotGame(page);
 	const playerBoard = page.locator('button.h-6:not(.rounded-full)');
 
 	// Start the match (flagging is a no-op before the first reveal).
 	await playerBoard.nth(0).click({ button: 'left' });
 
-	// Bind to a concrete still-hidden cell by index so the locator doesn't
-	// re-resolve to a different cell after we flag it. Hidden cells keep
-	// bg-gray-200; revealed ones become bg-white.
+	// Bind to a concrete still-hidden, unflagged cell by index so the locator
+	// doesn't re-resolve after we flag it. Revealed cells get `bg-cell-revealed`;
+	// flagged cells get `text-destructive`.
 	const firstHiddenIndex = async () => {
 		const count = await playerBoard.count();
 		for (let i = 0; i < count; i++) {
 			const cls = (await playerBoard.nth(i).getAttribute('class')) ?? '';
-			if (cls.includes('bg-gray-200') && !cls.includes('text-red-500')) return i;
+			if (!cls.includes('bg-cell-revealed') && !cls.includes('text-destructive')) return i;
 		}
 		throw new Error('no hidden cell');
 	};
@@ -116,7 +123,8 @@ for (const { path, mode, blurb } of [
 	{ path: '/tactical', mode: 'Tactical', blurb: /battle royale/i }
 ]) {
 	test(`${path}: info button explains how ${mode} works`, async ({ page }) => {
-		await page.goto(path);
+		if (path === '/blitz') await openBlitzBotGame(page);
+		else await page.goto(path);
 		// The blurb lives in a popover that's closed until the button is clicked.
 		await expect(page.getByText(blurb)).toBeHidden();
 		await page.getByRole('button', { name: `How ${mode} works` }).click();
@@ -126,7 +134,8 @@ for (const { path, mode, blurb } of [
 
 for (const path of ['/blitz', '/tactical']) {
 	test(`${path}: difficulty can be set before the match`, async ({ page }) => {
-		await page.goto(path);
+		if (path === '/blitz') await openBlitzBotGame(page);
+		else await page.goto(path);
 		const select = page.getByLabel('Bot difficulty');
 		await expect(select).toBeVisible();
 		await select.selectOption('hard');
