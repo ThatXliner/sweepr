@@ -178,17 +178,23 @@
 <!-- I use flex for now because I can't deal with grid -->
 <div class="flex h-screen justify-evenly">
 	<!-- These must be manually calculated as {3*rows} and {3*cols} respectively -->
-	<div class="relative max-h-[42rem] max-w-[21rem] overflow-hidden border-8 border-black">
-		<div class="absolute top-0 z-10 h-6 w-full bg-red-500 text-center">DEATH.</div>
+	<div
+		class="relative max-h-[42rem] max-w-[21rem] overflow-hidden rounded-md border-8 border-foreground"
+	>
+		<div
+			class="absolute top-0 z-10 h-6 w-full bg-destructive text-center text-sm font-bold tracking-widest text-destructive-foreground"
+		>
+			DEATH.
+		</div>
 		<div bind:this={boardAlpha} style="transform:translateY({(48 * rows) / 2}px)">
 			{#each alphaBoard as row, rowIndex (rowIndex)}
 				<div class="flex">
 					{#each row as cell, colIndex (colIndex)}
 						<button
-							class="h-12 w-12 border border-gray-400 {cell.isRevealed
-								? 'bg-white'
-								: 'bg-gray-200'} {cell.isFlagged
-								? 'text-red-500'
+							class="h-12 w-12 border border-cell-grid font-semibold tabular-nums {cell.isRevealed
+								? 'bg-cell-revealed'
+								: 'bg-cell-covered'} {cell.isFlagged
+								? 'text-destructive'
 								: getCellColor(cell.adjacentMines)}"
 							onclick={() => handleCellClick('alpha', rowIndex, colIndex)}
 							oncontextmenu={(event) => handleCellRightClick(event, 'alpha', rowIndex, colIndex)}
@@ -216,10 +222,10 @@
 				<div class="flex">
 					{#each row as cell, colIndex (colIndex)}
 						<button
-							class="h-12 w-12 border border-gray-400 {cell.isRevealed
-								? 'bg-white'
-								: 'bg-blue-200'} {cell.isFlagged
-								? 'text-red-500'
+							class="h-12 w-12 border border-cell-grid font-semibold tabular-nums {cell.isRevealed
+								? 'bg-cell-revealed'
+								: 'bg-cell-covered'} {cell.isFlagged
+								? 'text-destructive'
 								: getCellColor(cell.adjacentMines)}"
 							onclick={() => handleCellClick('beta', rowIndex, colIndex)}
 							oncontextmenu={(event) => handleCellRightClick(event, 'beta', rowIndex, colIndex)}
@@ -243,27 +249,23 @@
 			{/each}
 		</div>
 	</div>
-	<div class="my-auto flex flex-col justify-evenly space-y-3">
-		{#if invertControls}
-			<h2>Left click to flag, right click to reveal</h2>
-		{:else}
-			<h2>Left click to reveal, right click to flag</h2>
-		{/if}
-		<div class="flex items-center space-x-2">
+	<div class="my-auto flex flex-col gap-3 text-sm">
+		<p class="text-muted-foreground">
+			{invertControls
+				? 'Left-click flags, right-click reveals'
+				: 'Left-click reveals, right-click flags'}. Clear rows before they scroll off the top.
+		</p>
+		<div class="flex items-center gap-2">
 			<Switch id="guess-less-mode" disabled />
 			<Label for="guess-less-mode">Guess-less mode</Label>
 		</div>
-		<div class="flex items-center space-x-2">
+		<div class="flex items-center gap-2">
 			<Switch id="invert-controls" bind:checked={invertControls} />
 			<Label for="invert-controls">Invert controls</Label>
 		</div>
 		<!-- TODO: only show flags that are available onscreen -->
-		<div>Flags left: Infinite</div>
+		<div class="text-muted-foreground">
+			Flags left: <span class="font-semibold text-foreground">∞</span>
+		</div>
 	</div>
 </div>
-
-<style>
-	button:focus {
-		outline: none;
-	}
-</style>
