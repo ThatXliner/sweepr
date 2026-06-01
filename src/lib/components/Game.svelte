@@ -1,6 +1,7 @@
 <script lang="ts">
 	import Label from '$lib/components/ui/label/label.svelte';
 	import Switch from '$lib/components/ui/switch/switch.svelte';
+	import { untrack } from 'svelte';
 	import { Game, getCellColor, type Board } from '$lib/gameLogic.svelte';
 	import Time from './Time.svelte';
 
@@ -14,15 +15,22 @@
 
 	// `game` is plain mutable state that the reveal/flag handlers mutate in
 	// place; `board` mirrors `game.board` and is the reactive value the template
-	// renders. The $effect rebuilds both whenever the difficulty props change,
-	// so reading the props happens in a reactive context (no stale snapshot).
+	// renders. The $effect below rebuilds both whenever the difficulty props
+	// change and also runs on mount, so these initial values are placeholders.
 	let game: Game = $state(new Game(16, 30, 99));
 	let board: Board = $state([]);
 
 	$effect(() => {
-		game = new Game(rows, cols, mines);
-		board = game.board;
-		resetTimer();
+		// Track only the difficulty props; untrack the writes so the effect can't
+		// re-trigger itself (which would loop until effect_update_depth_exceeded).
+		void rows;
+		void cols;
+		void mines;
+		untrack(() => {
+			game = new Game(rows, cols, mines);
+			board = game.board;
+			resetTimer();
+		});
 	});
 	function reveal(row: number, col: number) {
 		// Guarantee that the first cell clicked is not a mine.
