@@ -1,26 +1,29 @@
-<!-- 
+<!--
 	- Classic: The original solo game from the 90s!
 	- Tactical: An online battle royale where you place mines on their board!
 	- Blitz: The 1v1 stamina marathon to clear more tiles than your opponent
  -->
+<script lang="ts">
+	import { resolve } from '$app/paths';
+</script>
 
 <main class="flex h-screen flex-col justify-center space-y-36 overflow-x-hidden">
 	<a
-		href="/classic"
+		href={resolve('/classic')}
 		class="ml-[50vw] rounded bg-blue-500 px-4 py-2 text-8xl font-bold text-white transition-transform duration-100 hover:scale-125 hover:bg-blue-700"
 	>
 		Classic
 		<p class="text-lg italic">The original solo game from the 90s!</p>
 	</a>
 	<a
-		href="/tactical"
+		href={resolve('/tactical')}
 		class="ml-[50vw] rounded bg-red-500 px-4 py-2 text-8xl font-bold text-white transition-transform duration-100 hover:scale-125 hover:bg-red-700"
 	>
 		Tactical
 		<p class="text-lg italic">An online battle royale where you place mines on their board!</p>
 	</a>
 	<a
-		href="/blitz"
+		href={resolve('/blitz')}
 		class="ml-[50vw] rounded bg-yellow-500 px-4 py-2 text-8xl font-bold text-white transition-transform duration-100 hover:scale-125 hover:bg-yellow-700"
 	>
 		Blitz
