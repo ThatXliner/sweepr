@@ -29,7 +29,9 @@
 	let playerGame = $state(new Game(rows, cols, mines, newSeed()));
 	// svelte-ignore state_referenced_locally
 	let oppGame = $state(new Game(rows, cols, mines, newSeed()));
+	// svelte-ignore state_referenced_locally
 	let playerBoard: Board = $state(playerGame.board);
+	// svelte-ignore state_referenced_locally
 	let oppBoard: Board = $state(oppGame.board);
 
 	let playerAlive = $state(true);
@@ -37,6 +39,10 @@
 	let invertControls = $state(false);
 	let over = $state(false);
 	let result = $state('');
+	// Tiles cleared on boards already finished — score accumulates across the
+	// fresh boards each side gets for clearing one, until the time cap.
+	let playerBanked = $state(0);
+	let oppBanked = $state(0);
 
 	let elapsed = $state(0);
 	let startTime = 0;
@@ -58,6 +64,10 @@
 			elapsed = Date.now() - startTime;
 			if (elapsed >= timeCap) finish();
 		}, 100);
+		startBot();
+	}
+
+	function startBot() {
 		bot = makeBlitzBot(oppGame, {
 			onChange: () => {
 				oppBoard = oppGame.board;
@@ -65,7 +75,12 @@
 					oppAlive = false;
 					finish();
 				} else if (oppGame.checkWin()) {
-					finish();
+					// Cleared the board: bank it and hand the bot a fresh one.
+					oppBanked += countCleared(oppGame.board);
+					bot?.stop();
+					oppGame = new Game(rows, cols, mines, newSeed());
+					oppBoard = oppGame.board;
+					startBot();
 				}
 			}
 		});
@@ -78,8 +93,8 @@
 		clearInterval(timer);
 		bot?.stop();
 
-		const playerScore = countCleared(playerGame.board);
-		const oppScore = countCleared(oppGame.board);
+		const playerScore = playerBanked + countCleared(playerGame.board);
+		const oppScore = oppBanked + countCleared(oppGame.board);
 		if (playerAlive && !oppAlive) result = 'You win — opponent hit a mine!';
 		else if (!playerAlive && oppAlive) result = 'You lose — you hit a mine.';
 		else if (playerScore > oppScore) result = `You win — ${playerScore} vs ${oppScore} cleared.`;
@@ -104,7 +119,11 @@
 			playerAlive = false;
 			finish();
 		} else if (playerGame.checkWin()) {
-			finish();
+			// Cleared the board: bank it and start a fresh one to keep racing. Leave
+			// isFirstClick true so the next board also gets first-click safety.
+			playerBanked += countCleared(playerGame.board);
+			playerGame = new Game(rows, cols, mines, newSeed());
+			playerBoard = playerGame.board;
 		}
 	}
 
@@ -131,9 +150,10 @@
 		};
 	});
 
+	// Lifetime tiles cleared = banked from finished boards + the current board.
 	// The board mirrors are reactive, so these recompute on every reveal.
-	let playerScore = $derived(countCleared(playerBoard));
-	let oppScore = $derived(countCleared(oppBoard));
+	let playerScore = $derived(playerBanked + countCleared(playerBoard));
+	let oppScore = $derived(oppBanked + countCleared(oppBoard));
 </script>
 
 <div class="flex flex-col items-center gap-3 p-3">
@@ -143,11 +163,12 @@
 			<p>A 1v1 stamina marathon: clear more tiles than your opponent before time runs out.</p>
 			<p>
 				You and your opponent each sweep your own board of equal difficulty. Left click reveals,
-				right click flags — same rules as Classic.
+				right click flags — same rules as Classic. Clear a board and you immediately get a fresh
+				one, so your tile count keeps climbing.
 			</p>
 			<p>
-				Hit a mine and you're out. If you both survive to the time cap, whoever cleared more tiles
-				wins. Right now the opponent is a bot; online play is coming.
+				Hit a mine and you're out. Otherwise the most tiles cleared when the timer runs out wins.
+				Right now the opponent is a bot; online play is coming.
 			</p>
 		</ModeInfo>
 	</div>
