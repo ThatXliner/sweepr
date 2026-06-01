@@ -12,6 +12,20 @@
 	import Time from './Time.svelte';
 	import Label from '$lib/components/ui/label/label.svelte';
 	import Switch from '$lib/components/ui/switch/switch.svelte';
+	import type { RealtimeChannel } from '@supabase/supabase-js';
+	import { makeNetworkDriver, broadcastMove } from '$lib/net/networkDriver';
+
+	// When `net` is provided the opponent is a remote player instead of a bot:
+	// both boards use agreed seeds, the opponent's moves arrive over the channel,
+	// and our own reveals/flags are broadcast out.
+	interface NetProps {
+		channel: RealtimeChannel;
+		memberId: string; // ours
+		oppMemberId: string;
+		yourSeed: number;
+		oppSeed: number;
+		onForfeit?: () => void; // opponent left → we win
+	}
 
 	interface Props {
 		rows?: number;
@@ -19,24 +33,26 @@
 		mines?: number;
 		// Hard time cap for the marathon, in ms.
 		timeCap?: number;
+		net?: NetProps;
 	}
 
 	// Hard-ish default so it's a marathon, not a sprint. Dimensions are fixed for
 	// the lifetime of a match (the page never re-passes props).
-	let { rows = 16, cols = 16, mines = 40, timeCap = 180_000 }: Props = $props();
+	let { rows = 16, cols = 16, mines = 40, timeCap = 180_000, net }: Props = $props();
 
 	// Each player gets their OWN random seed: equal difficulty, independent
 	// layouts, and first-click safety stays intact (regenerating one board never
-	// has to stay in lockstep with the other).
+	// has to stay in lockstep with the other). Online, the seeds are agreed by the
+	// matchmaker so both clients build identical boards.
 	function newSeed() {
 		return Math.floor(Math.random() * 0xffffffff);
 	}
 
 	// Props are construction-time config; the boards are built once.
 	// svelte-ignore state_referenced_locally
-	let playerGame = $state(new Game(rows, cols, mines, newSeed()));
+	let playerGame = $state(new Game(rows, cols, mines, net ? net.yourSeed : newSeed()));
 	// svelte-ignore state_referenced_locally
-	let oppGame = $state(new Game(rows, cols, mines, newSeed()));
+	let oppGame = $state(new Game(rows, cols, mines, net ? net.oppSeed : newSeed()));
 	// svelte-ignore state_referenced_locally
 	let playerBoard: Board = $state(playerGame.board);
 	// svelte-ignore state_referenced_locally
@@ -74,26 +90,48 @@
 			elapsed = Date.now() - startTime;
 			if (elapsed >= timeCap) finish();
 		}, 100);
-		startBot();
+		startOpponent();
 	}
 
-	function startBot() {
-		bot = makeBlitzBot(oppGame, {
-			...DIFFICULTY_DELAYS[difficulty],
-			onChange: () => {
+	// Shared handler for any opponent move (bot or network): refresh the mirror,
+	// then bank + reseed on clear, or finish on death.
+	function onOpponentChange() {
+		oppBoard = oppGame.board;
+		if (oppGame.checkLose()) {
+			oppAlive = false;
+			finish();
+		} else if (oppGame.checkWin()) {
+			oppBanked += countCleared(oppGame.board);
+			bot?.stop();
+			// Local bot picks its own fresh seed; online, the peer tells us via a
+			// `newboard` message (handled below), so only reseed here for bots.
+			if (!net) {
+				oppGame = new Game(rows, cols, mines, newSeed());
 				oppBoard = oppGame.board;
-				if (oppGame.checkLose()) {
+				startOpponent();
+			}
+		}
+	}
+
+	function startOpponent() {
+		if (net) {
+			bot = makeNetworkDriver(oppGame, net.channel, net.oppMemberId, {
+				onChange: onOpponentChange,
+				onReveal: (r, c) => oppGame.revealCell(r, c),
+				onFlag: (r, c) => oppGame.flagCell(r, c),
+				onDead: () => {
 					oppAlive = false;
 					finish();
-				} else if (oppGame.checkWin()) {
-					// Cleared the board: bank it and hand the bot a fresh one.
-					oppBanked += countCleared(oppGame.board);
-					bot?.stop();
-					oppGame = new Game(rows, cols, mines, newSeed());
-					oppBoard = oppGame.board;
-					startBot();
-				}
-			}
+				},
+				// Peer cleared its board and started a fresh one with this seed.
+				onNewBoard: () => {}
+			});
+			bot.start();
+			return;
+		}
+		bot = makeBlitzBot(oppGame, {
+			...DIFFICULTY_DELAYS[difficulty],
+			onChange: onOpponentChange
 		});
 		bot.start();
 	}
@@ -113,34 +151,50 @@
 		else result = `Draw — ${playerScore} apiece.`;
 	}
 
+	// Pick a fresh board seed; online, broadcast it so the peer rebuilds the same
+	// board for their mirror of us.
+	function reseedPlayer(): number {
+		const seed = newSeed();
+		playerGame = new Game(rows, cols, mines, seed);
+		playerBoard = playerGame.board;
+		if (net) broadcastMove(net.channel, { kind: 'seed', from: net.memberId, seed });
+		return seed;
+	}
+
 	function reveal(row: number, col: number) {
 		if (over) return;
 		if (playerGame.isFirstClick) {
 			playerGame.isFirstClick = false;
-			// First-click safety: regenerate (new seed) until the clicked cell opens
-			// a flood-fill region.
+			// First-click safety: regenerate until the clicked cell opens a
+			// flood-fill region. Online, broadcast the post-safety seed so the peer
+			// mirrors our actual board before our first reveal.
+			let seed = net ? net.yourSeed : newSeed();
 			while (playerGame.board[row][col].isMine || playerGame.board[row][col].adjacentMines !== 0) {
-				playerGame.board = playerGame.generateBoard(rows, cols, mines, newSeed());
+				seed = newSeed();
+				playerGame.board = playerGame.generateBoard(rows, cols, mines, seed);
 			}
 			playerBoard = playerGame.board;
+			if (net) broadcastMove(net.channel, { kind: 'seed', from: net.memberId, seed });
 			startMatch();
 		}
 		playerBoard = playerGame.revealCell(row, col);
+		if (net) broadcastMove(net.channel, { kind: 'reveal', from: net.memberId, r: row, c: col });
 		if (playerGame.checkLose()) {
 			playerAlive = false;
+			if (net) broadcastMove(net.channel, { kind: 'dead', from: net.memberId });
 			finish();
 		} else if (playerGame.checkWin()) {
 			// Cleared the board: bank it and start a fresh one to keep racing. Leave
 			// isFirstClick true so the next board also gets first-click safety.
 			playerBanked += countCleared(playerGame.board);
-			playerGame = new Game(rows, cols, mines, newSeed());
-			playerBoard = playerGame.board;
+			reseedPlayer();
 		}
 	}
 
 	function flag(row: number, col: number) {
 		if (over || playerGame.isFirstClick) return;
 		playerBoard = playerGame.flagCell(row, col);
+		if (net) broadcastMove(net.channel, { kind: 'flag', from: net.memberId, r: row, c: col });
 	}
 
 	function onCell(row: number, col: number) {
@@ -154,7 +208,27 @@
 	}
 
 	$effect(() => {
-		// Stop the bot timer if the component unmounts mid-match.
+		// Online: rebuild the opponent's mirror board whenever they (re)seed it,
+		// and treat their leaving as a forfeit.
+		if (net) {
+			net.channel.on('broadcast', { event: 'move' }, ({ payload }) => {
+				if (payload.from !== net.oppMemberId) return;
+				if (payload.kind === 'seed') {
+					oppGame = new Game(rows, cols, mines, payload.seed);
+					oppBoard = oppGame.board;
+				}
+			});
+			net.channel.on('presence', { event: 'leave' }, ({ leftPresences }) => {
+				if (over) return;
+				const left = leftPresences as Array<{ memberId?: string }>;
+				if (left.some((p) => p.memberId === net.oppMemberId)) {
+					oppAlive = false;
+					net.onForfeit?.();
+					finish();
+				}
+			});
+		}
+		// Stop the timer/driver if the component unmounts mid-match.
 		return () => {
 			clearInterval(timer);
 			bot?.stop();
@@ -180,12 +254,12 @@
 			</p>
 			<p>
 				Hit a mine and you're out. Otherwise the most tiles cleared when the timer runs out wins.
-				Right now the opponent is a bot; online play is coming.
+				{#if net}You're playing a live opponent.{:else}The opponent is a bot.{/if}
 			</p>
 		</ModeInfo>
 	</div>
 	<Time milliseconds={elapsed} />
-	{#if !over && elapsed === 0}
+	{#if !net && !over && elapsed === 0}
 		<div class="flex items-center gap-2 text-sm">
 			<Label for="blitz-difficulty">Bot difficulty</Label>
 			<select
