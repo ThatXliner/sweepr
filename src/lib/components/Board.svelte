@@ -48,25 +48,30 @@
 	}
 </script>
 
-{#each board as row, rowIndex (rowIndex)}
-	<div class="flex">
-		{#each row as cell, colIndex (colIndex)}
-			<button
-				class="{cellSize} border border-gray-400 {cell.isRevealed
-					? 'bg-white'
-					: unrevealedBg} {cell.isFlagged ? 'text-red-500' : getCellColor(cell.adjacentMines)}"
-				class:cursor-default={!interactive}
-				onclick={() => handleClick(rowIndex, colIndex)}
-				oncontextmenu={(event) => handleAlt(event, rowIndex, colIndex)}
-				ontouchstart={() => (touchStart = Date.now())}
-				ontouchend={(event) =>
-					Date.now() - touchStart >= TOUCH_DELAY && handleAlt(event, rowIndex, colIndex)}
-			>
-				{content(cell, rowIndex, colIndex)}
-			</button>
-		{/each}
-	</div>
-{/each}
+<!-- Container-level guard: any right-click inside the board (even a hairline
+	gap between buttons) is suppressed so the browser menu never pops, and the
+	whole area is treated as the board. -->
+<div oncontextmenu={(e) => e.preventDefault()} role="grid" tabindex="-1">
+	{#each board as row, rowIndex (rowIndex)}
+		<div class="flex">
+			{#each row as cell, colIndex (colIndex)}
+				<button
+					class="{cellSize} -mr-px -mb-px border border-gray-400 {cell.isRevealed
+						? 'bg-white'
+						: unrevealedBg} {cell.isFlagged ? 'text-red-500' : getCellColor(cell.adjacentMines)}"
+					class:cursor-default={!interactive}
+					onclick={() => handleClick(rowIndex, colIndex)}
+					oncontextmenu={(event) => handleAlt(event, rowIndex, colIndex)}
+					ontouchstart={() => (touchStart = Date.now())}
+					ontouchend={(event) =>
+						Date.now() - touchStart >= TOUCH_DELAY && handleAlt(event, rowIndex, colIndex)}
+				>
+					{content(cell, rowIndex, colIndex)}
+				</button>
+			{/each}
+		</div>
+	{/each}
+</div>
 
 <style>
 	button:focus {
