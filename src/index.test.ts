@@ -49,3 +49,55 @@ describe('Game.fromMines', () => {
 		expect(game.checkLose()).toBe(false);
 	});
 });
+
+describe('Game.injectMine', () => {
+	it('adds a mine on a covered cell with no revealed neighbor', () => {
+		// 5x5, one corner mine. Reveal a numbered cell next to it (adjacency 1, so
+		// no flood-fill), leaving the rest of the board covered and far away.
+		const game = Game.fromMines(5, 5, [[0, 0]]);
+		const before = game.board.flat().filter((c) => c.isMine).length;
+		game.revealCell(1, 1);
+
+		const placed = game.injectMine();
+		expect(placed).toBe(true);
+
+		const after = game.board.flat();
+		expect(after.filter((c) => c.isMine).length).toBe(before + 1);
+		expect(game.mines).toBe(before + 1);
+
+		// The new mine must not sit next to an already-revealed cell.
+		for (let r = 0; r < 5; r++) {
+			for (let c = 0; c < 5; c++) {
+				if (!game.board[r][c].isMine) continue;
+				if (r === 0 && c === 0) continue; // the original mine
+				for (let i = Math.max(r - 1, 0); i <= Math.min(r + 1, 4); i++) {
+					for (let j = Math.max(c - 1, 0); j <= Math.min(c + 1, 4); j++) {
+						expect(game.board[i][j].isRevealed).toBe(false);
+					}
+				}
+			}
+		}
+	});
+
+	it('does not change adjacency numbers on already-revealed cells', () => {
+		const game = Game.fromMines(5, 5, [[0, 0]]);
+		game.revealCell(1, 1);
+		const revealedBefore = game.board
+			.flat()
+			.filter((c) => c.isRevealed)
+			.map((c) => c.adjacentMines);
+		game.injectMine();
+		const revealedAfter = game.board
+			.flat()
+			.filter((c) => c.isRevealed)
+			.map((c) => c.adjacentMines);
+		expect(revealedAfter).toEqual(revealedBefore);
+	});
+
+	it('returns false when no eligible cell exists', () => {
+		// Tiny board fully revealed: nothing covered to inject into.
+		const game = Game.fromMines(1, 2, [[0, 0]]);
+		game.revealCell(0, 1);
+		expect(game.injectMine()).toBe(false);
+	});
+});

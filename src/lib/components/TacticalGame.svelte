@@ -44,7 +44,15 @@
 	let games = $state<Game[]>([]);
 	let boards = $state<Board[]>([]);
 	let alive = $state<boolean[]>([]);
+	// How many boards each player has cleared — each fresh board gets harder.
+	let cleared = $state<number[]>([]);
 	let bots: OpponentDriver[] = [];
+
+	// Mines on a freshly-spawned board: the base placement budget plus one per
+	// board already cleared, so survivors face escalating difficulty.
+	function mineCountFor(clearedBoards: number): number {
+		return budget + clearedBoards;
+	}
 
 	let elapsed = $state(0);
 	let startTime = 0;
@@ -99,23 +107,25 @@
 		games = ids.map((id) => Game.fromMines(rows, cols, placements.get(id) ?? []));
 		boards = games.map((g) => g.board);
 		alive = ids.map(() => true);
+		cleared = ids.map(() => 0);
 		phase = 'sweeping';
 
 		startTime = Date.now();
 		timer = setInterval(() => (elapsed = Date.now() - startTime), 100);
 
 		// Drive the bot players.
-		bots = ids.map((id) => {
-			if (id === HUMAN) return { start() {}, stop() {} };
-			return makeTacticalBot(games[id], {
-				onChange: () => {
-					boards[id] = games[id].board;
-					boards = [...boards];
-					checkPlayer(id);
-				}
-			});
-		});
+		bots = ids.map((id) => (id === HUMAN ? { start() {}, stop() {} } : makeBot(id)));
 		bots.forEach((b) => b.start());
+	}
+
+	function makeBot(id: number): OpponentDriver {
+		return makeTacticalBot(games[id], {
+			onChange: () => {
+				boards[id] = games[id].board;
+				boards = [...boards];
+				checkPlayer(id);
+			}
+		});
 	}
 
 	// --- Sweep phase ---
@@ -127,11 +137,38 @@
 			alive = [...alive];
 			bots[id]?.stop();
 		} else if (games[id].checkWin()) {
-			// Cleared their board: they survive outright and win.
-			finish(id);
-			return;
+			// Cleared the board: survive and get a fresh, harder one to keep
+			// sweeping. The match only ends by elimination.
+			cleared[id]++;
+			cleared = [...cleared];
+			regenerateBoard(id);
 		}
 		evaluate();
+	}
+
+	// Replace a player's cleared board with a new, denser one.
+	function regenerateBoard(id: number) {
+		const fresh = new Game(rows, cols, mineCountFor(cleared[id]));
+		games[id] = fresh;
+		boards[id] = fresh.board;
+		boards = [...boards];
+		// The bot held a reference to the old board, so re-point it at the new one.
+		if (id !== HUMAN) {
+			bots[id]?.stop();
+			bots[id] = makeBot(id);
+			bots[id].start();
+		}
+	}
+
+	// A correct flag sends a mine to every other living player's board, dropped
+	// on a covered cell with no revealed neighbor so no visible number changes.
+	function sendMineToOpponents(fromId: number) {
+		for (const id of ids) {
+			if (id === fromId || !alive[id]) continue;
+			games[id].injectMine();
+			boards[id] = games[id].board;
+		}
+		boards = [...boards];
 	}
 
 	function evaluate() {
@@ -153,12 +190,13 @@
 
 		let winner = winnerId;
 		if (winner === undefined) {
-			// Everyone died (or a tie): break by tiles cleared.
+			// Everyone died on the same tick: break by boards cleared, then by tiles
+			// cleared on the current board.
 			let best = -1;
 			for (const id of ids) {
-				const c = clearedCount(games[id].board);
-				if (c > best) {
-					best = c;
+				const score = cleared[id] * 10_000 + clearedCount(games[id].board);
+				if (score > best) {
+					best = score;
 					winner = id;
 				}
 			}
@@ -174,8 +212,15 @@
 	}
 	function flag(row: number, col: number) {
 		if (phase !== 'sweeping' || !alive[HUMAN]) return;
+		const cell = games[HUMAN].board[row][col];
+		const wasFlagged = cell.isFlagged;
 		boards[HUMAN] = games[HUMAN].flagCell(row, col);
 		boards = [...boards];
+		// Correctly flagging a mine (newly flagged, actually a mine) sends a mine
+		// to every opponent.
+		if (!wasFlagged && cell.isFlagged && cell.isMine) {
+			sendMineToOpponents(HUMAN);
+		}
 	}
 	function onCell(row: number, col: number) {
 		if (invertControls) flag(row, col);
@@ -207,6 +252,10 @@
 			<p>
 				<strong>Sweeping:</strong> once everyone's ready, clear the board your opponents built for you.
 				Left click reveals, right click flags. Hit a mine and you're eliminated.
+			</p>
+			<p>
+				<strong>Attack:</strong> correctly flag a mine and you send a hidden mine to every opponent's
+				board. Clear your whole board and you get a fresh, harder one.
 			</p>
 			<p>Last sweeper alive wins. Opponents are bots for now; online play is coming.</p>
 		</ModeInfo>
@@ -247,7 +296,8 @@
 			<p class="text-sm text-gray-500">
 				{invertControls
 					? 'Left click to flag, right click to reveal'
-					: 'Left click to reveal, right click to flag'} — last sweeper alive wins.
+					: 'Left click to reveal, right click to flag'} — correctly flagging a mine sends one to every
+				opponent. Last sweeper alive wins.
 			</p>
 		{/if}
 		<div class="flex flex-wrap items-start justify-center gap-8">
@@ -255,6 +305,9 @@
 				<div class="flex flex-col items-center gap-1" class:opacity-50={!alive[id]}>
 					<h3 class="font-semibold">
 						{id === HUMAN ? 'You' : `Player ${id}`} — {clearedCount(boards[id])}
+						{#if cleared[id] > 0}
+							<span class="text-xs font-normal text-gray-500">({cleared[id]} cleared)</span>
+						{/if}
 					</h3>
 					<Board_
 						board={boards[id]}

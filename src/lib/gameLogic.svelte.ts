@@ -160,6 +160,46 @@ export class Game {
 			}
 		}
 	}
+
+	private hasRevealedNeighbor(row: number, col: number): boolean {
+		for (let i = Math.max(row - 1, 0); i <= Math.min(row + 1, this.board.length - 1); i++) {
+			for (let j = Math.max(col - 1, 0); j <= Math.min(col + 1, this.board[0].length - 1); j++) {
+				if (this.board[i][j].isRevealed) return true;
+			}
+		}
+		return false;
+	}
+
+	/**
+	 * Drop a mine onto a random still-covered cell that has no revealed neighbor,
+	 * so no already-visible number becomes stale (only covered neighbors gain
+	 * adjacency). Used by Tactical: a correct flag sends a mine to opponents.
+	 * Returns true if a spot was found, false if the board is too full.
+	 */
+	public injectMine(): boolean {
+		const candidates: Array<[number, number]> = [];
+		for (let row = 0; row < this.board.length; row++) {
+			for (let col = 0; col < this.board[0].length; col++) {
+				const cell = this.board[row][col];
+				if (cell.isMine || cell.isRevealed || cell.isFlagged) continue;
+				if (this.hasRevealedNeighbor(row, col)) continue;
+				candidates.push([row, col]);
+			}
+		}
+		if (candidates.length === 0) return false;
+		const [row, col] = candidates[Math.floor(Math.random() * candidates.length)];
+		this.board[row][col].isMine = true;
+		this.mines++;
+		this.flags++;
+		// Only the new mine's covered neighbors change; recompute them.
+		for (let i = Math.max(row - 1, 0); i <= Math.min(row + 1, this.board.length - 1); i++) {
+			for (let j = Math.max(col - 1, 0); j <= Math.min(col + 1, this.board[0].length - 1); j++) {
+				const c = this.board[i][j];
+				if (!c.isMine) c.adjacentMines++;
+			}
+		}
+		return true;
+	}
 }
 export function getCellColor(mineCount: number) {
 	switch (mineCount) {
