@@ -1,6 +1,13 @@
 <script lang="ts">
 	import { Game, type Board } from '$lib/gameLogic.svelte';
-	import { makeTacticalBot, randomMinePlacement, type OpponentDriver } from '$lib/opponent.svelte';
+	import {
+		makeTacticalBot,
+		randomMinePlacement,
+		DIFFICULTY_DELAYS,
+		DIFFICULTIES,
+		type Difficulty,
+		type OpponentDriver
+	} from '$lib/opponent.svelte';
 	import Board_ from './Board.svelte';
 	import ModeInfo from './ModeInfo.svelte';
 	import Time from './Time.svelte';
@@ -18,6 +25,8 @@
 
 	type Phase = 'placing' | 'sweeping' | 'done';
 	let phase = $state<Phase>('placing');
+	// Bot speed tier, chosen before the match in the placing phase.
+	let difficulty = $state<Difficulty>('medium');
 
 	// Player 0 is the human; 1..N-1 are bots.
 	// svelte-ignore state_referenced_locally
@@ -131,10 +140,12 @@
 		});
 	}
 
-	// Give each bot a different speed so opponents vary in difficulty.
+	// All bots share the chosen difficulty's speed, with a small per-bot stagger
+	// so they don't move in perfect lockstep.
 	function botSpeed(id: number): { minDelay: number; maxDelay: number } {
-		const base = 300 + id * 250;
-		return { minDelay: base, maxDelay: base + 600 };
+		const { minDelay, maxDelay } = DIFFICULTY_DELAYS[difficulty];
+		const stagger = id * 80;
+		return { minDelay: minDelay + stagger, maxDelay: maxDelay + stagger };
 	}
 
 	// --- Sweep phase ---
@@ -271,6 +282,17 @@
 	</div>
 	{#if phase === 'placing'}
 		<h2 class="text-2xl font-bold">Place your mines</h2>
+		<label class="flex items-center gap-2 text-sm">
+			Bot difficulty:
+			<select
+				bind:value={difficulty}
+				class="rounded border border-gray-300 px-2 py-1 capitalize focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+			>
+				{#each DIFFICULTIES as d (d)}
+					<option value={d} class="capitalize">{d}</option>
+				{/each}
+			</select>
+		</label>
 		<p class="text-sm text-gray-500">
 			Click opponent boards to drop mines on them. Mines left:
 			<span class="font-bold">{minesLeft}</span>

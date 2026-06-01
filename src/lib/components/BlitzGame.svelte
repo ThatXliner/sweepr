@@ -1,6 +1,12 @@
 <script lang="ts">
 	import { Game, type Board } from '$lib/gameLogic.svelte';
-	import { makeBlitzBot, type OpponentDriver } from '$lib/opponent.svelte';
+	import {
+		makeBlitzBot,
+		DIFFICULTY_DELAYS,
+		DIFFICULTIES,
+		type Difficulty,
+		type OpponentDriver
+	} from '$lib/opponent.svelte';
 	import Board_ from './Board.svelte';
 	import ModeInfo from './ModeInfo.svelte';
 	import Time from './Time.svelte';
@@ -39,6 +45,8 @@
 	let invertControls = $state(false);
 	let over = $state(false);
 	let result = $state('');
+	// Bot speed tier, chosen before the first click. Locked once the match starts.
+	let difficulty = $state<Difficulty>('medium');
 	// Tiles cleared on boards already finished — score accumulates across the
 	// fresh boards each side gets for clearing one, until the time cap.
 	let playerBanked = $state(0);
@@ -69,6 +77,7 @@
 
 	function startBot() {
 		bot = makeBlitzBot(oppGame, {
+			...DIFFICULTY_DELAYS[difficulty],
 			onChange: () => {
 				oppBoard = oppGame.board;
 				if (oppGame.checkLose()) {
@@ -173,6 +182,19 @@
 		</ModeInfo>
 	</div>
 	<Time milliseconds={elapsed} />
+	{#if !over && elapsed === 0}
+		<label class="flex items-center gap-2 text-sm">
+			Bot difficulty:
+			<select
+				bind:value={difficulty}
+				class="rounded border border-gray-300 px-2 py-1 capitalize focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+			>
+				{#each DIFFICULTIES as d (d)}
+					<option value={d} class="capitalize">{d}</option>
+				{/each}
+			</select>
+		</label>
+	{/if}
 	{#if over}
 		<h2 class="text-2xl font-bold">{result}</h2>
 	{:else}

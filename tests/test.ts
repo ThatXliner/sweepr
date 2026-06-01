@@ -105,3 +105,13 @@ for (const { path, mode, blurb } of [
 		await expect(page.getByText(blurb)).toBeVisible();
 	});
 }
+
+for (const path of ['/blitz', '/tactical']) {
+	test(`${path}: difficulty can be set before the match`, async ({ page }) => {
+		await page.goto(path);
+		const select = page.getByLabel('Bot difficulty');
+		await expect(select).toBeVisible();
+		await select.selectOption('hard');
+		await expect(select).toHaveValue('hard');
+	});
+}

@@ -12,6 +12,18 @@ export interface OpponentDriver {
 	stop(): void;
 }
 
+export type Difficulty = 'easy' | 'medium' | 'hard';
+
+// Difficulty is purely how fast the bots move — they always play with the same
+// deduction skill. Each tier maps to a tick-delay range in ms.
+export const DIFFICULTY_DELAYS: Record<Difficulty, { minDelay: number; maxDelay: number }> = {
+	easy: { minDelay: 1200, maxDelay: 2000 },
+	medium: { minDelay: 600, maxDelay: 1200 },
+	hard: { minDelay: 250, maxDelay: 500 }
+};
+
+export const DIFFICULTIES: Difficulty[] = ['easy', 'medium', 'hard'];
+
 export interface BotOptions {
 	// Tick interval bounds in ms; each tick waits a random delay in [min, max].
 	// This is the ONLY difficulty lever — a slower bot is easier to beat. The
