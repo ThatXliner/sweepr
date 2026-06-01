@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { Game } from '$lib/gameLogic.svelte';
+import { deduce } from '$lib/opponent.svelte';
 
 describe('Game.generateBoard seeding', () => {
 	it('places the requested number of mines', () => {
@@ -99,5 +100,38 @@ describe('Game.injectMine', () => {
 		const game = Game.fromMines(1, 2, [[0, 0]]);
 		game.revealCell(0, 1);
 		expect(game.injectMine()).toBe(false);
+	});
+});
+
+describe('bot deduction', () => {
+	it('flags a cell it can prove is a mine', () => {
+		// 1x2 with one mine. Reveal the safe cell: it reads "1", and its only
+		// covered neighbor must be the mine.
+		const game = Game.fromMines(1, 2, [[0, 0]]);
+		game.revealCell(0, 1);
+		const { mines, safe } = deduce(game);
+		expect(mines).toContainEqual([0, 0]);
+		expect(safe).toHaveLength(0);
+	});
+
+	it('marks remaining neighbors safe once the mine is flagged', () => {
+		// 1x3, mine at the left end. Reveal the middle ("1") and flag the mine;
+		// the right cell is then provably safe.
+		const game = Game.fromMines(1, 3, [[0, 0]]);
+		game.revealCell(0, 1);
+		game.flagCell(0, 0);
+		const { safe } = deduce(game);
+		expect(safe).toContainEqual([0, 2]);
+	});
+
+	it('finds nothing certain on an ambiguous board', () => {
+		// 1x3 with one mine somewhere in {0,2}; revealing the middle "1" can't
+		// distinguish which end is the mine, so no certainty either way.
+		const game = Game.fromMines(1, 3, [[0, 2]]);
+		game.revealCell(0, 1);
+		const { safe, mines } = deduce(game);
+		// The "1" sees two covered neighbors and one mine — neither rule fires.
+		expect(safe).toHaveLength(0);
+		expect(mines).toHaveLength(0);
 	});
 });

@@ -120,12 +120,21 @@
 
 	function makeBot(id: number): OpponentDriver {
 		return makeTacticalBot(games[id], {
+			...botSpeed(id),
 			onChange: () => {
 				boards[id] = games[id].board;
 				boards = [...boards];
 				checkPlayer(id);
-			}
+			},
+			// A bot's correct flag attacks everyone else, just like the human's.
+			onCorrectFlag: () => sendMineToOpponents(id)
 		});
+	}
+
+	// Give each bot a different speed so opponents vary in difficulty.
+	function botSpeed(id: number): { minDelay: number; maxDelay: number } {
+		const base = 300 + id * 250;
+		return { minDelay: base, maxDelay: base + 600 };
 	}
 
 	// --- Sweep phase ---

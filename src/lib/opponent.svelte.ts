@@ -14,18 +14,30 @@ export interface OpponentDriver {
 
 export interface BotOptions {
 	// Tick interval bounds in ms; each tick waits a random delay in [min, max].
+	// This is the ONLY difficulty lever — a slower bot is easier to beat. The
+	// bot always plays as well as single-cell deduction allows.
 	minDelay?: number;
 	maxDelay?: number;
-	// Probability (0..1) of ignoring the safe-ish frontier and picking a fully
-	// random unrevealed cell — i.e. how often the bot takes a fatal risk.
-	riskiness?: number;
 	// Called after every move so the host can re-read `game.board` and check
 	// win/lose (game.board is not itself reactive).
 	onChange: () => void;
+	// Called when the bot correctly flags a mine (it always flags only cells it
+	// has proven are mines). Tactical uses this to send a mine to opponents.
+	onCorrectFlag?: () => void;
 }
 
 function key(r: number, c: number) {
 	return `${r},${c}`;
+}
+
+function neighbors(game: Game, r: number, c: number): Array<[number, number]> {
+	const out: Array<[number, number]> = [];
+	for (let i = Math.max(r - 1, 0); i <= Math.min(r + 1, game.board.length - 1); i++) {
+		for (let j = Math.max(c - 1, 0); j <= Math.min(c + 1, game.board[0].length - 1); j++) {
+			if (i !== r || j !== c) out.push([i, j]);
+		}
+	}
+	return out;
 }
 
 /** All unrevealed, unflagged cells on the board. */
@@ -41,29 +53,13 @@ function unrevealedCells(game: Game): Array<[number, number]> {
 }
 
 /**
- * The "frontier": unrevealed cells adjacent to an already-revealed cell. A
- * human expands from what they've opened, so this is where the bot plays. It's
- * not guaranteed safe (the bot has no solver), so it dies now and then — which
- * is the behavior we want.
+ * The "frontier": unrevealed, unflagged cells adjacent to a revealed cell —
+ * where a guess is least bad when no deduction is available.
  */
 function frontierCells(game: Game): Array<[number, number]> {
-	const out: Array<[number, number]> = [];
-	const rows = game.board.length;
-	const cols = game.board[0].length;
-	for (let r = 0; r < rows; r++) {
-		for (let c = 0; c < cols; c++) {
-			const cell = game.board[r][c];
-			if (cell.isRevealed || cell.isFlagged) continue;
-			let adjacentRevealed = false;
-			for (let i = Math.max(r - 1, 0); i <= Math.min(r + 1, rows - 1); i++) {
-				for (let j = Math.max(c - 1, 0); j <= Math.min(c + 1, cols - 1); j++) {
-					if (game.board[i][j].isRevealed) adjacentRevealed = true;
-				}
-			}
-			if (adjacentRevealed) out.push([r, c]);
-		}
-	}
-	return out;
+	return unrevealedCells(game).filter(([r, c]) =>
+		neighbors(game, r, c).some(([i, j]) => game.board[i][j].isRevealed)
+	);
 }
 
 function pick<T>(arr: T[]): T | undefined {
@@ -71,8 +67,46 @@ function pick<T>(arr: T[]): T | undefined {
 }
 
 /**
- * A self-pacing sweeping bot. Drives `game` by calling the same `revealCell`
- * a human click would. Reused by both Blitz and Tactical's sweep phase.
+ * One pass of classic single-cell minesweeper deduction over every revealed
+ * number, returning provably-safe cells to open and provably-mined cells to
+ * flag. Two rules:
+ *   - if a number already touches as many flags as its count, its remaining
+ *     covered neighbors are all safe;
+ *   - if a number's covered (incl. flagged) neighbor count equals its count,
+ *     those covered neighbors are all mines.
+ */
+export function deduce(game: Game): {
+	safe: Array<[number, number]>;
+	mines: Array<[number, number]>;
+} {
+	// Plain dedup maps, not reactive state.
+	/* eslint-disable svelte/prefer-svelte-reactivity */
+	const safe = new Map<string, [number, number]>();
+	const mines = new Map<string, [number, number]>();
+	/* eslint-enable svelte/prefer-svelte-reactivity */
+	for (let r = 0; r < game.board.length; r++) {
+		for (let c = 0; c < game.board[0].length; c++) {
+			const cell = game.board[r][c];
+			if (!cell.isRevealed || cell.adjacentMines === 0) continue;
+			const covered = neighbors(game, r, c).filter(([i, j]) => !game.board[i][j].isRevealed);
+			const flagged = covered.filter(([i, j]) => game.board[i][j].isFlagged);
+			const unflagged = covered.filter(([i, j]) => !game.board[i][j].isFlagged);
+			if (flagged.length === cell.adjacentMines) {
+				for (const [i, j] of unflagged) safe.set(key(i, j), [i, j]);
+			} else if (covered.length === cell.adjacentMines) {
+				for (const [i, j] of unflagged) mines.set(key(i, j), [i, j]);
+			}
+		}
+	}
+	return { safe: [...safe.values()], mines: [...mines.values()] };
+}
+
+/**
+ * A self-pacing sweeping bot that plays with basic deduction: it opens cells it
+ * can prove are safe and flags cells it can prove are mines, and only guesses
+ * when deduction is exhausted (so it can still die on a forced guess). Skill is
+ * fixed; difficulty comes solely from how fast it ticks. Drives `game` via the
+ * same `revealCell`/`flagCell` a human would. Reused by Blitz and Tactical.
  *
  * Stops on its own once the game is won or lost; the host observes that via the
  * `onChange` callback (which fires after every move).
@@ -80,7 +114,6 @@ function pick<T>(arr: T[]): T | undefined {
 export function makeSweepBot(game: Game, opts: BotOptions): OpponentDriver {
 	const minDelay = opts.minDelay ?? 600;
 	const maxDelay = opts.maxDelay ?? 1200;
-	const riskiness = opts.riskiness ?? 0.15;
 	let timer: ReturnType<typeof setTimeout> | undefined;
 	let stopped = false;
 
@@ -88,16 +121,27 @@ export function makeSweepBot(game: Game, opts: BotOptions): OpponentDriver {
 		if (stopped) return;
 		if (game.checkLose() || game.checkWin()) return;
 
-		// First move: the board is untouched, so just open a random cell to get a
-		// flood-fill frontier going (mirrors a human's blind opening click).
-		const frontier = frontierCells(game);
-		const useRandom = frontier.length === 0 || Math.random() < riskiness;
-		const target = useRandom ? pick(unrevealedCells(game)) : pick(frontier);
-		if (!target) return;
+		const { safe, mines } = deduce(game);
 
-		game.revealCell(target[0], target[1]);
+		if (mines.length > 0) {
+			// Provably a mine — flag it. In Tactical this attacks opponents.
+			const [r, c] = pick(mines)!;
+			game.flagCell(r, c);
+			opts.onCorrectFlag?.();
+		} else if (safe.length > 0) {
+			// Provably safe — open it, no risk.
+			const [r, c] = pick(safe)!;
+			game.revealCell(r, c);
+		} else {
+			// Deduction exhausted: guess a frontier cell, or open a random cell to
+			// get started / when the frontier is empty.
+			const frontier = frontierCells(game);
+			const target = frontier.length > 0 ? pick(frontier) : pick(unrevealedCells(game));
+			if (!target) return;
+			game.revealCell(target[0], target[1]);
+		}
+
 		opts.onChange();
-
 		if (game.checkLose() || game.checkWin()) return;
 		schedule();
 	}
