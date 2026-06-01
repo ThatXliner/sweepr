@@ -2,6 +2,7 @@
 	import { Game, type Board } from '$lib/gameLogic.svelte';
 	import { makeBlitzBot, type OpponentDriver } from '$lib/opponent.svelte';
 	import Board_ from './Board.svelte';
+	import ModeInfo from './ModeInfo.svelte';
 	import Time from './Time.svelte';
 
 	interface Props {
@@ -136,6 +137,20 @@
 </script>
 
 <div class="flex flex-col items-center gap-3 p-3">
+	<div class="flex items-center gap-2">
+		<h2 class="text-lg font-semibold">Blitz</h2>
+		<ModeInfo title="Blitz">
+			<p>A 1v1 stamina marathon: clear more tiles than your opponent before time runs out.</p>
+			<p>
+				You and your opponent each sweep your own board of equal difficulty. Left click reveals,
+				right click flags — same rules as Classic.
+			</p>
+			<p>
+				Hit a mine and you're out. If you both survive to the time cap, whoever cleared more tiles
+				wins. Right now the opponent is a bot; online play is coming.
+			</p>
+		</ModeInfo>
+	</div>
 	<Time milliseconds={elapsed} />
 	{#if over}
 		<h2 class="text-2xl font-bold">{result}</h2>

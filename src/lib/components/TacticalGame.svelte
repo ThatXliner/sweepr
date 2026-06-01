@@ -2,6 +2,7 @@
 	import { Game, type Board } from '$lib/gameLogic.svelte';
 	import { makeTacticalBot, randomMinePlacement, type OpponentDriver } from '$lib/opponent.svelte';
 	import Board_ from './Board.svelte';
+	import ModeInfo from './ModeInfo.svelte';
 	import Time from './Time.svelte';
 
 	interface Props {
@@ -195,6 +196,21 @@
 </script>
 
 <div class="flex flex-col items-center gap-4 p-3">
+	<div class="flex items-center gap-2">
+		<h2 class="text-lg font-semibold">Tactical</h2>
+		<ModeInfo title="Tactical">
+			<p>A battle royale where you place mines on your opponents' boards, then everyone sweeps.</p>
+			<p>
+				<strong>Placing:</strong> click opponent boards to drop your mines on them. Your own board gets
+				mined by everyone else.
+			</p>
+			<p>
+				<strong>Sweeping:</strong> once everyone's ready, clear the board your opponents built for you.
+				Left click reveals, right click flags. Hit a mine and you're eliminated.
+			</p>
+			<p>Last sweeper alive wins. Opponents are bots for now; online play is coming.</p>
+		</ModeInfo>
+	</div>
 	{#if phase === 'placing'}
 		<h2 class="text-2xl font-bold">Place your mines</h2>
 		<p class="text-sm text-gray-500">

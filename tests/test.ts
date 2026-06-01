@@ -18,11 +18,11 @@ test('classic renders the easy board', async ({ page }) => {
 test('blitz: clicking starts the match and the bot opponent sweeps', async ({ page }) => {
 	await page.goto('/blitz');
 	// Two 16x16 boards = 512 cells.
-	await expect(page.locator('button.h-6')).toHaveCount(512);
+	await expect(page.locator('button.h-6:not(.rounded-full)')).toHaveCount(512);
 	await expect(page.getByText(/Opponent — 0 cleared/)).toBeVisible();
 
 	// Open a player cell to start the timer + bot.
-	await page.locator('button.h-6').nth(40).click();
+	await page.locator('button.h-6:not(.rounded-full)').nth(40).click();
 
 	// The bot should clear at least one cell within a few seconds.
 	await expect(page.getByText(/Opponent — 0 cleared/)).toBeHidden({ timeout: 6000 });
@@ -35,19 +35,19 @@ test('tactical: place a mine, ready, then sweep phase begins', async ({ page }) 
 	await expect(page.getByText('Mines left:')).toContainText('10');
 
 	// Drop one mine on the first opponent board.
-	await page.locator('button.h-7').first().click();
+	await page.locator('button.h-7:not(.rounded-full)').first().click();
 	await expect(page.getByText('Mines left:')).toContainText('9');
 
 	await page.getByRole('button', { name: /Ready/ }).click();
 
 	// Sweep phase: 4 boards of 9x9 = 324 cells, and the instructions appear.
-	await expect(page.locator('button.h-7')).toHaveCount(324);
+	await expect(page.locator('button.h-7:not(.rounded-full)')).toHaveCount(324);
 	await expect(page.getByText(/last sweeper alive wins|wins\./)).toBeVisible();
 });
 
 test('blitz: flagging marks a hidden cell and invert controls swaps actions', async ({ page }) => {
 	await page.goto('/blitz');
-	const playerBoard = page.locator('button.h-6');
+	const playerBoard = page.locator('button.h-6:not(.rounded-full)');
 
 	// Start the match (flagging is a no-op before the first reveal).
 	await playerBoard.nth(0).click({ button: 'left' });
@@ -79,7 +79,7 @@ test('blitz: flagging marks a hidden cell and invert controls swaps actions', as
 test('tactical: a densely-mined match resolves to a winner', async ({ page }) => {
 	await page.goto('/tactical');
 	// Spend all 10 mines on the first opponent to load its board.
-	const oppCells = page.locator('button.h-7');
+	const oppCells = page.locator('button.h-7:not(.rounded-full)');
 	for (let i = 0; i < 10; i++) await oppCells.nth(i).click();
 	await expect(page.getByText('Mines left:')).toContainText('0');
 
@@ -91,3 +91,17 @@ test('tactical: a densely-mined match resolves to a winner', async ({ page }) =>
 	// At least one player should be flagged eliminated.
 	await expect(page.getByText('eliminated').first()).toBeVisible();
 });
+
+for (const { path, mode, blurb } of [
+	{ path: '/classic', mode: 'Classic', blurb: /original minesweeper/i },
+	{ path: '/blitz', mode: 'Blitz', blurb: /stamina marathon/i },
+	{ path: '/tactical', mode: 'Tactical', blurb: /battle royale/i }
+]) {
+	test(`${path}: info button explains how ${mode} works`, async ({ page }) => {
+		await page.goto(path);
+		// The blurb lives in a popover that's closed until the button is clicked.
+		await expect(page.getByText(blurb)).toBeHidden();
+		await page.getByRole('button', { name: `How ${mode} works` }).click();
+		await expect(page.getByText(blurb)).toBeVisible();
+	});
+}
