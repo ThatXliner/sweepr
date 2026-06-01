@@ -211,22 +211,39 @@
 		// Online: rebuild the opponent's mirror board whenever they (re)seed it,
 		// and treat their leaving as a forfeit.
 		if (net) {
+			// Online both players watch each other from the start, so the opponent
+			// driver + timer must run immediately, not on our own first click.
+			startMatch();
 			net.channel.on('broadcast', { event: 'move' }, ({ payload }) => {
 				if (payload.from !== net.oppMemberId) return;
 				if (payload.kind === 'seed') {
+					// Peer (re)seeded their board — rebuild our mirror. The driver's
+					// handlers read the live `oppGame`, so no need to recreate it.
 					oppGame = new Game(rows, cols, mines, payload.seed);
 					oppBoard = oppGame.board;
 				}
 			});
-			net.channel.on('presence', { event: 'leave' }, ({ leftPresences }) => {
+			// Forfeit when the opponent disappears from presence. We check on every
+			// sync (and leave) because an abrupt tab-close surfaces as the member
+			// dropping out of presenceState well before a 'leave' event fires. Only
+			// arm this once we've actually seen the opponent join (so the initial
+			// empty sync doesn't trigger a false forfeit).
+			let oppSeen = false;
+			const checkOpponentPresent = () => {
 				if (over) return;
-				const left = leftPresences as Array<{ memberId?: string }>;
-				if (left.some((p) => p.memberId === net.oppMemberId)) {
+				const state = net.channel.presenceState<{ memberId?: string }>();
+				const present = Object.values(state)
+					.flat()
+					.some((p) => p.memberId === net.oppMemberId);
+				if (present) oppSeen = true;
+				else if (oppSeen) {
 					oppAlive = false;
 					net.onForfeit?.();
 					finish();
 				}
-			});
+			};
+			net.channel.on('presence', { event: 'sync' }, checkOpponentPresent);
+			net.channel.on('presence', { event: 'leave' }, checkOpponentPresent);
 		}
 		// Stop the timer/driver if the component unmounts mid-match.
 		return () => {
