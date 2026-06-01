@@ -60,7 +60,7 @@ describe('Game.injectMine', () => {
 		game.revealCell(1, 1);
 
 		const placed = game.injectMine();
-		expect(placed).toBe(true);
+		expect(placed).not.toBeNull();
 
 		const after = game.board.flat();
 		expect(after.filter((c) => c.isMine).length).toBe(before + 1);
@@ -95,11 +95,25 @@ describe('Game.injectMine', () => {
 		expect(revealedAfter).toEqual(revealedBefore);
 	});
 
-	it('returns false when no eligible cell exists', () => {
+	it('returns null when no eligible cell exists', () => {
 		// Tiny board fully revealed: nothing covered to inject into.
 		const game = Game.fromMines(1, 2, [[0, 0]]);
 		game.revealCell(0, 1);
-		expect(game.injectMine()).toBe(false);
+		expect(game.injectMine()).toBeNull();
+	});
+
+	it('injectMineAt is deterministic across identical boards (no desync)', () => {
+		// Two clients build the same board and apply the same attack cell — their
+		// mine layouts and adjacency must end up byte-identical.
+		const a = Game.fromMines(5, 5, [[0, 0]]);
+		const b = Game.fromMines(5, 5, [[0, 0]]);
+		a.injectMineAt(3, 3);
+		b.injectMineAt(3, 3);
+		const layout = (g: Game) => g.board.flat().map((c) => [c.isMine, c.adjacentMines]);
+		expect(layout(a)).toEqual(layout(b));
+		expect(a.board[3][3].isMine).toBe(true);
+		// A neighbor of the new mine gains one adjacency.
+		expect(a.board[2][2].adjacentMines).toBe(1);
 	});
 });
 

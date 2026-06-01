@@ -171,12 +171,11 @@ export class Game {
 	}
 
 	/**
-	 * Drop a mine onto a random still-covered cell that has no revealed neighbor,
-	 * so no already-visible number becomes stale (only covered neighbors gain
-	 * adjacency). Used by Tactical: a correct flag sends a mine to opponents.
-	 * Returns true if a spot was found, false if the board is too full.
+	 * Cells eligible to receive an injected mine: still-covered, unflagged, not
+	 * already a mine, and with no revealed neighbor (so no visible number goes
+	 * stale when a mine lands next to them).
 	 */
-	public injectMine(): boolean {
+	public injectMineCandidates(): Array<[number, number]> {
 		const candidates: Array<[number, number]> = [];
 		for (let row = 0; row < this.board.length; row++) {
 			for (let col = 0; col < this.board[0].length; col++) {
@@ -186,8 +185,15 @@ export class Game {
 				candidates.push([row, col]);
 			}
 		}
-		if (candidates.length === 0) return false;
-		const [row, col] = candidates[Math.floor(Math.random() * candidates.length)];
+		return candidates;
+	}
+
+	/**
+	 * Place a mine at an explicit cell and bump the adjacency of its covered
+	 * neighbors. Used so online clients all inject at the SAME coordinates (the
+	 * attacker picks the cell and broadcasts it) — random placement would desync.
+	 */
+	public injectMineAt(row: number, col: number): void {
 		this.board[row][col].isMine = true;
 		this.mines++;
 		this.flags++;
@@ -198,7 +204,20 @@ export class Game {
 				if (!c.isMine) c.adjacentMines++;
 			}
 		}
-		return true;
+	}
+
+	/**
+	 * Drop a mine onto a random eligible cell and return where it landed (or null
+	 * if the board is too full). Used by Tactical: a correct flag sends a mine to
+	 * opponents. Online, the attacker calls this, then broadcasts the cell so
+	 * peers apply it via `injectMineAt`.
+	 */
+	public injectMine(): [number, number] | null {
+		const candidates = this.injectMineCandidates();
+		if (candidates.length === 0) return null;
+		const [row, col] = candidates[Math.floor(Math.random() * candidates.length)];
+		this.injectMineAt(row, col);
+		return [row, col];
 	}
 }
 // Maps an adjacent-mine count to its number-color class. The `num-N` classes
