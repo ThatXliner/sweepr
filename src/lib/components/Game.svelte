@@ -1,7 +1,7 @@
 <script lang="ts">
 	import Label from '$lib/components/ui/label/label.svelte';
 	import Switch from '$lib/components/ui/switch/switch.svelte';
-	import { Game } from '$lib/gameLogic.svelte';
+	import { Game, getCellColor, type Board } from '$lib/gameLogic.svelte';
 	import Time from './Time.svelte';
 
 	interface Props {
@@ -11,8 +11,19 @@
 	}
 
 	let { rows = 16, cols = 30, mines = 99 }: Props = $props();
-	let game: Game = $state(new Game(rows, cols, mines));
-	let board = $state(game.board);
+
+	// `game` is plain mutable state that the reveal/flag handlers mutate in
+	// place; `board` mirrors `game.board` and is the reactive value the template
+	// renders. The $effect rebuilds both whenever the difficulty props change,
+	// so reading the props happens in a reactive context (no stale snapshot).
+	let game: Game = $state(new Game(16, 30, 99));
+	let board: Board = $state([]);
+
+	$effect(() => {
+		game = new Game(rows, cols, mines);
+		board = game.board;
+		resetTimer();
+	});
 	function reveal(row: number, col: number) {
 		// Guarantee that the first cell clicked is not a mine.
 		// For some reason, this has to be done in the click handler
@@ -55,28 +66,6 @@
 		}
 	}
 
-	function getCellColor(mineCount: number) {
-		switch (mineCount) {
-			case 1:
-				return 'text-blue-500';
-			case 2:
-				return 'text-green-500';
-			case 3:
-				return 'text-red-500';
-			case 4:
-				return 'text-purple-500';
-			case 5: // Maroon
-				return 'text-yellow-500';
-			case 6: // Teal
-				return 'text-yellow-500';
-			case 7:
-				return 'text-black';
-			case 8:
-				return 'text-slate-500';
-			default:
-				return '';
-		}
-	}
 	let startTime: number = 0;
 	let timer: ReturnType<typeof setInterval>;
 	let elapsedTime: number = $state(0);
@@ -91,6 +80,11 @@
 
 	function stopTimer() {
 		clearInterval(timer);
+	}
+
+	function resetTimer() {
+		clearInterval(timer);
+		elapsedTime = 0;
 	}
 	let touchStart = $state(0);
 	const TOUCH_DELAY = 500;
