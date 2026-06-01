@@ -1,0 +1,261 @@
+<script lang="ts">
+	import { Game, type Board } from '$lib/gameLogic.svelte';
+	import { makeTacticalBot, randomMinePlacement, type OpponentDriver } from '$lib/opponent.svelte';
+	import Board_ from './Board.svelte';
+	import Time from './Time.svelte';
+
+	interface Props {
+		players?: number;
+		rows?: number;
+		cols?: number;
+		// Mines each player places onto their opponents.
+		budget?: number;
+	}
+
+	// Config is fixed for the match (the page never re-passes props).
+	let { players = 4, rows = 9, cols = 9, budget = 10 }: Props = $props();
+
+	type Phase = 'placing' | 'sweeping' | 'done';
+	let phase = $state<Phase>('placing');
+
+	// Player 0 is the human; 1..N-1 are bots.
+	// svelte-ignore state_referenced_locally
+	const ids = Array.from({ length: players }, (_, i) => i);
+	const HUMAN = 0;
+
+	// Mines authored ON each player's board, keyed by target id. Accumulated from
+	// every other player during placement; consumed by Game.fromMines at build.
+	let placements = $state<Map<number, Array<[number, number]>>>(new Map(ids.map((id) => [id, []])));
+	// `${target},${r},${c}` cells already taken, to avoid double-placing.
+	// Plain dedup tracker; reactivity comes from `placements`, not this set.
+	// eslint-disable-next-line svelte/prefer-svelte-reactivity
+	const taken = new Set<string>();
+
+	// svelte-ignore state_referenced_locally
+	let minesLeft = $state(budget);
+
+	// A stable empty grid to render opponent boards during placement (their real
+	// mines are hidden from the player anyway).
+	// svelte-ignore state_referenced_locally
+	const emptyBoard: Board = Game.fromMines(rows, cols, []).board;
+
+	// Sweep-phase state, populated at build time.
+	let games = $state<Game[]>([]);
+	let boards = $state<Board[]>([]);
+	let alive = $state<boolean[]>([]);
+	let bots: OpponentDriver[] = [];
+
+	let elapsed = $state(0);
+	let startTime = 0;
+	let timer: ReturnType<typeof setInterval> | undefined;
+	let invertControls = $state(false);
+	let result = $state('');
+
+	// --- Placement phase ---
+
+	function placeMine(target: number, row: number, col: number) {
+		if (phase !== 'placing' || minesLeft <= 0) return;
+		const k = `${target},${row},${col}`;
+		if (taken.has(k)) return;
+		taken.add(k);
+		placements.get(target)!.push([row, col]);
+		placements = new Map(placements); // trigger reactivity
+		minesLeft--;
+	}
+
+	// Cells the human has marked on a given target board, for the 🎯 overlay.
+	// Rebuilt from reactive `placements` each call, so a plain Set is correct.
+	function marksFor(target: number): Set<string> {
+		// eslint-disable-next-line svelte/prefer-svelte-reactivity
+		const set = new Set<string>();
+		for (const [r, c] of placements.get(target) ?? []) set.add(`${r},${c}`);
+		return set;
+	}
+
+	function botsPlace() {
+		// Each bot spends its budget across everyone but itself.
+		for (const placer of ids) {
+			if (placer === HUMAN) continue;
+			const targets = ids.filter((id) => id !== placer);
+			let remaining = budget;
+			// Spread roughly evenly over targets.
+			for (let t = 0; t < targets.length; t++) {
+				const target = targets[t];
+				const share = t === targets.length - 1 ? remaining : Math.ceil(budget / targets.length);
+				const n = Math.min(share, remaining);
+				const targetTaken = new Set((placements.get(target) ?? []).map(([r, c]) => `${r},${c}`));
+				const coords = randomMinePlacement(rows, cols, n, targetTaken);
+				placements.get(target)!.push(...coords);
+				remaining -= coords.length;
+				if (remaining <= 0) break;
+			}
+		}
+	}
+
+	function startSweep() {
+		botsPlace();
+		// Build each player's board from the mines others placed on them.
+		games = ids.map((id) => Game.fromMines(rows, cols, placements.get(id) ?? []));
+		boards = games.map((g) => g.board);
+		alive = ids.map(() => true);
+		phase = 'sweeping';
+
+		startTime = Date.now();
+		timer = setInterval(() => (elapsed = Date.now() - startTime), 100);
+
+		// Drive the bot players.
+		bots = ids.map((id) => {
+			if (id === HUMAN) return { start() {}, stop() {} };
+			return makeTacticalBot(games[id], {
+				onChange: () => {
+					boards[id] = games[id].board;
+					boards = [...boards];
+					checkPlayer(id);
+				}
+			});
+		});
+		bots.forEach((b) => b.start());
+	}
+
+	// --- Sweep phase ---
+
+	function checkPlayer(id: number) {
+		if (!alive[id]) return;
+		if (games[id].checkLose()) {
+			alive[id] = false;
+			alive = [...alive];
+			bots[id]?.stop();
+		} else if (games[id].checkWin()) {
+			// Cleared their board: they survive outright and win.
+			finish(id);
+			return;
+		}
+		evaluate();
+	}
+
+	function evaluate() {
+		const survivors = ids.filter((id) => alive[id]);
+		if (survivors.length <= 1) finish(survivors[0]);
+	}
+
+	function clearedCount(board: Board): number {
+		let n = 0;
+		for (const row of board) for (const cell of row) if (cell.isRevealed && !cell.isMine) n++;
+		return n;
+	}
+
+	function finish(winnerId?: number) {
+		if (phase === 'done') return;
+		phase = 'done';
+		clearInterval(timer);
+		bots.forEach((b) => b.stop());
+
+		let winner = winnerId;
+		if (winner === undefined) {
+			// Everyone died (or a tie): break by tiles cleared.
+			let best = -1;
+			for (const id of ids) {
+				const c = clearedCount(games[id].board);
+				if (c > best) {
+					best = c;
+					winner = id;
+				}
+			}
+		}
+		result = winner === HUMAN ? 'You win — last sweeper standing!' : `Player ${winner} wins.`;
+	}
+
+	function reveal(row: number, col: number) {
+		if (phase !== 'sweeping' || !alive[HUMAN]) return;
+		boards[HUMAN] = games[HUMAN].revealCell(row, col);
+		boards = [...boards];
+		checkPlayer(HUMAN);
+	}
+	function flag(row: number, col: number) {
+		if (phase !== 'sweeping' || !alive[HUMAN]) return;
+		boards[HUMAN] = games[HUMAN].flagCell(row, col);
+		boards = [...boards];
+	}
+	function onCell(row: number, col: number) {
+		if (invertControls) flag(row, col);
+		else reveal(row, col);
+	}
+	function onCellAlt(event: Event, row: number, col: number) {
+		event.preventDefault();
+		if (invertControls) reveal(row, col);
+		else flag(row, col);
+	}
+
+	$effect(() => {
+		return () => {
+			clearInterval(timer);
+			bots.forEach((b) => b.stop());
+		};
+	});
+</script>
+
+<div class="flex flex-col items-center gap-4 p-3">
+	{#if phase === 'placing'}
+		<h2 class="text-2xl font-bold">Place your mines</h2>
+		<p class="text-sm text-gray-500">
+			Click opponent boards to drop mines on them. Mines left:
+			<span class="font-bold">{minesLeft}</span>
+		</p>
+		<div class="flex flex-wrap items-start justify-center gap-8">
+			{#each ids.filter((id) => id !== HUMAN) as id (id)}
+				<div class="flex flex-col items-center gap-1">
+					<h3 class="font-semibold">Player {id}</h3>
+					<Board_
+						board={emptyBoard}
+						interactive={minesLeft > 0}
+						onCell={(r, c) => placeMine(id, r, c)}
+						onCellAlt={(e, r, c) => placeMine(id, r, c)}
+						cellSize="h-7 w-7"
+						unrevealedBg="bg-red-100"
+						marks={marksFor(id)}
+					/>
+				</div>
+			{/each}
+		</div>
+		<button
+			class="rounded bg-red-500 px-4 py-2 font-bold text-white transition-transform hover:scale-105 hover:bg-red-700"
+			onclick={startSweep}
+		>
+			Ready — start sweeping
+		</button>
+	{:else}
+		<Time milliseconds={elapsed} />
+		{#if phase === 'done'}
+			<h2 class="text-2xl font-bold">{result}</h2>
+		{:else}
+			<p class="text-sm text-gray-500">
+				{invertControls
+					? 'Left click to flag, right click to reveal'
+					: 'Left click to reveal, right click to flag'} — last sweeper alive wins.
+			</p>
+		{/if}
+		<div class="flex flex-wrap items-start justify-center gap-8">
+			{#each ids as id (id)}
+				<div class="flex flex-col items-center gap-1" class:opacity-50={!alive[id]}>
+					<h3 class="font-semibold">
+						{id === HUMAN ? 'You' : `Player ${id}`} — {clearedCount(boards[id])}
+					</h3>
+					<Board_
+						board={boards[id]}
+						interactive={id === HUMAN && phase === 'sweeping' && alive[HUMAN]}
+						{onCell}
+						{onCellAlt}
+						cellSize="h-7 w-7"
+						unrevealedBg={id === HUMAN ? 'bg-gray-200' : 'bg-slate-200'}
+					/>
+					<span class="text-sm text-gray-500">{alive[id] ? 'alive' : 'eliminated'}</span>
+				</div>
+			{/each}
+		</div>
+		{#if phase === 'sweeping'}
+			<label class="flex items-center gap-2 text-sm">
+				<input type="checkbox" bind:checked={invertControls} /> Invert controls
+			</label>
+		{/if}
+	{/if}
+</div>
