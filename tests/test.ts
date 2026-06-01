@@ -64,8 +64,13 @@ test('blitz: flagging marks a hidden cell and invert controls swaps actions', as
 		throw new Error('no hidden cell');
 	};
 
-	// Right-click flags.
+	// Right-click flags, and a second right-click toggles it back off exactly
+	// once (no double-fire from contextmenu + mousedown).
 	const a = playerBoard.nth(await firstHiddenIndex());
+	await a.click({ button: 'right' });
+	await expect(a).toHaveText('🚩');
+	await a.click({ button: 'right' });
+	await expect(a).toHaveText('');
 	await a.click({ button: 'right' });
 	await expect(a).toHaveText('🚩');
 

@@ -34,9 +34,22 @@
 	function handleClick(row: number, col: number) {
 		if (interactive) onCell?.(row, col);
 	}
-	function handleAlt(event: Event, row: number, col: number) {
+
+	// Right-click is driven by mousedown (button 2) rather than the contextmenu
+	// event: contextmenu fires inconsistently on trackpads (two-finger tap timing,
+	// OS gesture handling) and can be swallowed, whereas mousedown on the right
+	// button is reliable. `click` only fires for the left button, so this never
+	// collides with the left-click handler.
+	function handleMouseDown(event: MouseEvent, row: number, col: number) {
+		if (event.button !== 2) return;
 		event.preventDefault();
 		if (interactive) onCellAlt?.(event, row, col);
+	}
+
+	function suppressMenu(event: Event) {
+		// Keep the browser context menu from popping; the actual flag is handled on
+		// mousedown above.
+		event.preventDefault();
 	}
 
 	function content(cell: Board[number][number], row: number, col: number): string {
@@ -53,7 +66,7 @@
 	whole area is treated as the board. -->
 <div
 	class:pointer-events-none={!interactive}
-	oncontextmenu={(e) => e.preventDefault()}
+	oncontextmenu={suppressMenu}
 	role="grid"
 	tabindex="-1"
 >
@@ -66,10 +79,13 @@
 						: unrevealedBg} {cell.isFlagged ? 'text-red-500' : getCellColor(cell.adjacentMines)}"
 					class:cursor-default={!interactive}
 					onclick={() => handleClick(rowIndex, colIndex)}
-					oncontextmenu={(event) => handleAlt(event, rowIndex, colIndex)}
+					onmousedown={(event) => handleMouseDown(event, rowIndex, colIndex)}
+					oncontextmenu={suppressMenu}
 					ontouchstart={() => (touchStart = Date.now())}
-					ontouchend={(event) =>
-						Date.now() - touchStart >= TOUCH_DELAY && handleAlt(event, rowIndex, colIndex)}
+					ontouchend={(event) => {
+						if (Date.now() - touchStart >= TOUCH_DELAY && interactive)
+							onCellAlt?.(event, rowIndex, colIndex);
+					}}
 				>
 					{content(cell, rowIndex, colIndex)}
 				</button>
