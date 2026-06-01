@@ -9,7 +9,7 @@
 	type View = 'menu' | 'searching' | 'online' | 'bots';
 	let view = $state<View>('menu');
 	let match = $state<MatchResult | null>(null);
-	let matchmaker: ReturnType<typeof createMatchmaker> | undefined;
+	let matchmaker = $state<ReturnType<typeof createMatchmaker> | undefined>(undefined);
 
 	const supabase = page.data.supabase;
 
