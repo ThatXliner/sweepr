@@ -7,7 +7,8 @@
 </script>
 
 <div class="w-full p-3">
-	<div class="mb-2 flex items-center justify-between gap-2">
+	<div class="mb-2 flex items-center gap-2">
+		<span class="h-3 w-3 rounded-full bg-blue-600" aria-hidden="true"></span>
 		<h2 class="text-lg font-semibold">Classic</h2>
 		<ModeInfo title="Classic">
 			<p>The original minesweeper. Reveal every safe tile without detonating a mine.</p>

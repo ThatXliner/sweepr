@@ -11,6 +11,8 @@
 	import Board_ from './Board.svelte';
 	import ModeInfo from './ModeInfo.svelte';
 	import Time from './Time.svelte';
+	import Label from '$lib/components/ui/label/label.svelte';
+	import Switch from '$lib/components/ui/switch/switch.svelte';
 
 	interface Props {
 		players?: number;
@@ -262,6 +264,7 @@
 
 <div class="flex flex-col items-center gap-4 p-3">
 	<div class="flex items-center gap-2">
+		<span class="h-3 w-3 rounded-full bg-red-600" aria-hidden="true"></span>
 		<h2 class="text-lg font-semibold">Tactical</h2>
 		<ModeInfo title="Tactical">
 			<p>A battle royale where you place mines on your opponents' boards, then everyone sweeps.</p>
@@ -282,39 +285,41 @@
 	</div>
 	{#if phase === 'placing'}
 		<h2 class="text-2xl font-bold">Place your mines</h2>
-		<label class="flex items-center gap-2 text-sm">
-			Bot difficulty:
+		<div class="flex items-center gap-2 text-sm">
+			<Label for="tactical-difficulty">Bot difficulty</Label>
 			<select
+				id="tactical-difficulty"
 				bind:value={difficulty}
-				class="rounded border border-gray-300 px-2 py-1 capitalize focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+				class="rounded-md border bg-background px-2 py-1 capitalize focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
 			>
 				{#each DIFFICULTIES as d (d)}
 					<option value={d} class="capitalize">{d}</option>
 				{/each}
 			</select>
-		</label>
-		<p class="text-sm text-gray-500">
+		</div>
+		<p class="text-sm text-muted-foreground">
 			Click opponent boards to drop mines on them. Mines left:
-			<span class="font-bold">{minesLeft}</span>
+			<span class="font-bold text-foreground">{minesLeft}</span>
 		</p>
 		<div class="flex flex-wrap items-start justify-center gap-8">
 			{#each ids.filter((id) => id !== HUMAN) as id (id)}
 				<div class="flex flex-col items-center gap-1">
-					<h3 class="font-semibold">Opponent {id}</h3>
+					<h3 class="font-semibold text-red-600 dark:text-red-400">Opponent {id}</h3>
 					<Board_
 						board={emptyBoard}
 						interactive={minesLeft > 0}
 						onCell={(r, c) => placeMine(id, r, c)}
 						onCellAlt={(e, r, c) => placeMine(id, r, c)}
 						cellSize="h-7 w-7"
-						unrevealedBg="bg-red-100"
+						unrevealedBg="bg-red-500/20"
 						marks={marksFor(id)}
+						label="Opponent {id}'s board"
 					/>
 				</div>
 			{/each}
 		</div>
 		<button
-			class="rounded bg-red-500 px-4 py-2 font-bold text-white transition-transform hover:scale-105 hover:bg-red-700"
+			class="rounded-md bg-red-600 px-4 py-2 font-bold text-white shadow transition-transform hover:scale-105 hover:bg-red-700 focus-visible:ring-4 focus-visible:ring-red-400 focus-visible:outline-none"
 			onclick={startSweep}
 		>
 			Ready — start sweeping
@@ -324,20 +329,20 @@
 		{#if phase === 'done'}
 			<h2 class="text-2xl font-bold">{result}</h2>
 		{:else}
-			<p class="text-sm text-gray-500">
+			<p class="text-sm text-muted-foreground">
 				{invertControls
-					? 'Left click to flag, right click to reveal'
-					: 'Left click to reveal, right click to flag'} — correctly flagging a mine sends one to every
-				opponent. Last sweeper alive wins.
+					? 'Left-click flags, right-click reveals'
+					: 'Left-click reveals, right-click flags'} — correctly flagging a mine sends one to every opponent.
+				Last sweeper alive wins.
 			</p>
 		{/if}
 		<div class="flex flex-wrap items-start justify-center gap-8">
 			{#each ids as id (id)}
 				<div class="flex flex-col items-center gap-1" class:opacity-50={!alive[id]}>
-					<h3 class="font-semibold">
+					<h3 class="font-semibold {id === HUMAN ? '' : 'text-red-600 dark:text-red-400'}">
 						{id === HUMAN ? 'You' : `Opponent ${id}`} — {clearedCount(boards[id])}
 						{#if cleared[id] > 0}
-							<span class="text-xs font-normal text-gray-500">({cleared[id]} cleared)</span>
+							<span class="text-xs font-normal text-muted-foreground">({cleared[id]} cleared)</span>
 						{/if}
 					</h3>
 					<Board_
@@ -346,16 +351,18 @@
 						{onCell}
 						{onCellAlt}
 						cellSize="h-7 w-7"
-						unrevealedBg={id === HUMAN ? 'bg-gray-200' : 'bg-slate-200'}
+						unrevealedBg={id === HUMAN ? undefined : 'bg-red-500/20'}
+						label={id === HUMAN ? 'Your board' : `Opponent ${id}'s board`}
 					/>
-					<span class="text-sm text-gray-500">{alive[id] ? 'alive' : 'eliminated'}</span>
+					<span class="text-sm text-muted-foreground">{alive[id] ? 'alive' : 'eliminated'}</span>
 				</div>
 			{/each}
 		</div>
 		{#if phase === 'sweeping'}
-			<label class="flex items-center gap-2 text-sm">
-				<input type="checkbox" bind:checked={invertControls} /> Invert controls
-			</label>
+			<div class="flex items-center gap-2 text-sm">
+				<Switch id="tactical-invert" bind:checked={invertControls} />
+				<Label for="tactical-invert">Invert controls</Label>
+			</div>
 		{/if}
 	{/if}
 </div>

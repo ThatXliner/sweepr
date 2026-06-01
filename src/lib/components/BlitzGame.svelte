@@ -10,6 +10,8 @@
 	import Board_ from './Board.svelte';
 	import ModeInfo from './ModeInfo.svelte';
 	import Time from './Time.svelte';
+	import Label from '$lib/components/ui/label/label.svelte';
+	import Switch from '$lib/components/ui/switch/switch.svelte';
 
 	interface Props {
 		rows?: number;
@@ -167,6 +169,7 @@
 
 <div class="flex flex-col items-center gap-3 p-3">
 	<div class="flex items-center gap-2">
+		<span class="h-3 w-3 rounded-full bg-yellow-500" aria-hidden="true"></span>
 		<h2 class="text-lg font-semibold">Blitz</h2>
 		<ModeInfo title="Blitz">
 			<p>A 1v1 stamina marathon: clear more tiles than your opponent before time runs out.</p>
@@ -183,43 +186,61 @@
 	</div>
 	<Time milliseconds={elapsed} />
 	{#if !over && elapsed === 0}
-		<label class="flex items-center gap-2 text-sm">
-			Bot difficulty:
+		<div class="flex items-center gap-2 text-sm">
+			<Label for="blitz-difficulty">Bot difficulty</Label>
 			<select
+				id="blitz-difficulty"
 				bind:value={difficulty}
-				class="rounded border border-gray-300 px-2 py-1 capitalize focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+				class="rounded-md border bg-background px-2 py-1 capitalize focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
 			>
 				{#each DIFFICULTIES as d (d)}
 					<option value={d} class="capitalize">{d}</option>
 				{/each}
 			</select>
-		</label>
+		</div>
 	{/if}
 	{#if over}
 		<h2 class="text-2xl font-bold">{result}</h2>
 	{:else}
-		<p class="text-sm text-gray-500">
+		<p class="text-sm text-muted-foreground">
 			{invertControls
-				? 'Left click to flag, right click to reveal'
-				: 'Left click to reveal, right click to flag'} — clear more tiles than your opponent.
+				? 'Left-click flags, right-click reveals'
+				: 'Left-click reveals, right-click flags'} — clear more tiles than your opponent.
 		</p>
 	{/if}
 
-	<div class="flex items-start justify-center gap-12">
+	<div
+		class="flex flex-col items-center gap-8 sm:flex-row sm:items-start sm:justify-center sm:gap-12"
+	>
 		<div class="flex flex-col items-center gap-1">
 			<h3 class="font-semibold">You — {playerScore} cleared</h3>
-			<div>
-				<Board_ board={playerBoard} interactive={!over} {onCell} {onCellAlt} cellSize="h-6 w-6" />
+			<Board_
+				board={playerBoard}
+				interactive={!over}
+				{onCell}
+				{onCellAlt}
+				cellSize="h-6 w-6"
+				label="Your board"
+			/>
+			<div class="mt-1 flex items-center gap-2 text-sm">
+				<Switch id="blitz-invert" bind:checked={invertControls} />
+				<Label for="blitz-invert">Invert controls</Label>
 			</div>
-			<label class="mt-1 flex items-center gap-2 text-sm">
-				<input type="checkbox" bind:checked={invertControls} /> Invert controls
-			</label>
 		</div>
 
 		<div class="flex flex-col items-center gap-1">
-			<h3 class="font-semibold">Opponent — {oppScore} cleared</h3>
-			<Board_ board={oppBoard} interactive={false} cellSize="h-6 w-6" unrevealedBg="bg-blue-200" />
-			<span class="mt-1 text-sm text-gray-500">{oppAlive ? 'sweeping…' : 'eliminated'}</span>
+			<h3 class="font-semibold text-yellow-600 dark:text-yellow-400">
+				Opponent — {oppScore} cleared
+			</h3>
+			<Board_
+				board={oppBoard}
+				interactive={false}
+				cellSize="h-6 w-6"
+				unrevealedBg="bg-yellow-500/20"
+				label="Opponent's board"
+			/>
+			<span class="mt-1 text-sm text-muted-foreground">{oppAlive ? 'sweeping…' : 'eliminated'}</span
+			>
 		</div>
 	</div>
 </div>
