@@ -221,7 +221,7 @@
 				}
 			}
 		}
-		result = winner === HUMAN ? 'You win — last sweeper standing!' : `Player ${winner} wins.`;
+		result = winner === HUMAN ? 'You win — last sweeper standing!' : `Opponent ${winner} wins.`;
 	}
 
 	function reveal(row: number, col: number) {
@@ -300,7 +300,7 @@
 		<div class="flex flex-wrap items-start justify-center gap-8">
 			{#each ids.filter((id) => id !== HUMAN) as id (id)}
 				<div class="flex flex-col items-center gap-1">
-					<h3 class="font-semibold">Player {id}</h3>
+					<h3 class="font-semibold">Opponent {id}</h3>
 					<Board_
 						board={emptyBoard}
 						interactive={minesLeft > 0}
@@ -335,7 +335,7 @@
 			{#each ids as id (id)}
 				<div class="flex flex-col items-center gap-1" class:opacity-50={!alive[id]}>
 					<h3 class="font-semibold">
-						{id === HUMAN ? 'You' : `Player ${id}`} — {clearedCount(boards[id])}
+						{id === HUMAN ? 'You' : `Opponent ${id}`} — {clearedCount(boards[id])}
 						{#if cleared[id] > 0}
 							<span class="text-xs font-normal text-gray-500">({cleared[id]} cleared)</span>
 						{/if}
