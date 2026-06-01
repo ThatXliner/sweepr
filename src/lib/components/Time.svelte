@@ -1,10 +1,14 @@
 <script lang="ts">
 	import * as Card from '$lib/components/ui/card';
 
-	export let milliseconds = 0;
+	interface Props {
+		milliseconds?: number;
+	}
 
-	$: seconds = Math.floor(milliseconds / 1000) % 60;
-	$: minutes = Math.floor(milliseconds / 1000 / 60);
+	let { milliseconds = 0 }: Props = $props();
+
+	let seconds = $derived(Math.floor(milliseconds / 1000) % 60);
+	let minutes = $derived(Math.floor(milliseconds / 1000 / 60));
 
 	function formatTime(value: number) {
 		return value.toString().padStart(2, '0');
