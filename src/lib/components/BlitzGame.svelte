@@ -3,6 +3,7 @@
 	import {
 		makeBlitzBot,
 		DIFFICULTY_DELAYS,
+		DIFFICULTY_MISCLICK,
 		DIFFICULTIES,
 		type Difficulty,
 		type OpponentDriver
@@ -134,6 +135,7 @@
 		bot = makeBlitzBot(oppGame, {
 			...DIFFICULTY_DELAYS[difficulty],
 			guessless: true,
+			misclickChance: DIFFICULTY_MISCLICK[difficulty],
 			onChange: onOpponentChange
 		});
 		bot.start();

@@ -4,6 +4,7 @@
 		makeTacticalBot,
 		randomMinePlacement,
 		DIFFICULTY_DELAYS,
+		DIFFICULTY_MISCLICK,
 		DIFFICULTIES,
 		type Difficulty,
 		type OpponentDriver
@@ -253,6 +254,7 @@
 		return makeTacticalBot(games[id], {
 			...botSpeed(id),
 			guessless: true,
+			misclickChance: DIFFICULTY_MISCLICK[difficulty],
 			onChange: () => {
 				boards[id] = games[id].board;
 				boards = [...boards];
