@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { Game } from '$lib/gameLogic.svelte';
-import { deduce } from '$lib/opponent.svelte';
+import { deduce } from '$lib/solver';
 
 describe('Game.generateBoard seeding', () => {
 	it('places the requested number of mines', () => {
