@@ -14,6 +14,7 @@
 	import Switch from '$lib/components/ui/switch/switch.svelte';
 	import type { RealtimeChannel } from '@supabase/supabase-js';
 	import { makeNetworkDriver, broadcastMove } from '$lib/net/networkDriver';
+	import { findGuesslessSeed, isGuesslessOpening } from '$lib/solver';
 
 	// When `net` is provided the opponent is a remote player instead of a bot:
 	// both boards use agreed seeds, the opponent's moves arrive over the channel,
@@ -132,6 +133,7 @@
 		}
 		bot = makeBlitzBot(oppGame, {
 			...DIFFICULTY_DELAYS[difficulty],
+			guessless: true,
 			onChange: onOpponentChange
 		});
 		bot.start();
@@ -170,13 +172,27 @@
 		if (over) return;
 		if (playerGame.isFirstClick) {
 			playerGame.isFirstClick = false;
-			// First-click safety: regenerate until the clicked cell opens a
-			// flood-fill region. Online, broadcast the post-safety seed so the peer
-			// mirrors our actual board before our first reveal.
+			// Blitz is competitive, so guessless is ALWAYS on: re-deal until the
+			// board is fully solvable from this click — no forced guesses, ever.
+			// Online, broadcast the final seed so the peer mirrors our actual board
+			// before our first reveal (kept as-is when the agreed seed qualifies).
 			let seed = net ? net.yourSeed : newSeed();
-			while (playerGame.board[row][col].isMine || playerGame.board[row][col].adjacentMines !== 0) {
-				seed = newSeed();
-				playerGame.board = playerGame.generateBoard(rows, cols, mines, seed);
+			if (!isGuesslessOpening(playerGame, row, col)) {
+				const found = findGuesslessSeed(rows, cols, mines, row, col);
+				if (found !== null) {
+					seed = found;
+					playerGame.board = playerGame.generateBoard(rows, cols, mines, seed);
+				} else {
+					// Search cap hit (effectively never at Blitz density): degrade to
+					// plain first-click flood safety rather than hanging.
+					while (
+						playerGame.board[row][col].isMine ||
+						playerGame.board[row][col].adjacentMines !== 0
+					) {
+						seed = newSeed();
+						playerGame.board = playerGame.generateBoard(rows, cols, mines, seed);
+					}
+				}
 			}
 			playerBoard = playerGame.board;
 			if (net) broadcastMove(net.channel, { kind: 'seed', from: net.memberId, seed });
@@ -292,6 +308,10 @@
 			<p>
 				Hit a mine and you're out. Otherwise the most tiles cleared when the timer runs out wins.
 				{#if net}You're playing a live opponent.{:else}The opponent is a bot.{/if}
+			</p>
+			<p>
+				Every board deals itself <strong>guessless</strong> — fully solvable by logic from your first
+				click. If you blow up, it was deducible. Pure speed decides.
 			</p>
 		</ModeInfo>
 	</div>
