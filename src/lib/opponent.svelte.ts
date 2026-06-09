@@ -1,4 +1,5 @@
 import { Game } from '$lib/gameLogic.svelte';
+import { deduce, findGuesslessSeed, findSafeOpeningSeed } from '$lib/solver';
 
 /**
  * The single seam between local bots and (future) networked opponents. Both a
@@ -14,8 +15,8 @@ export interface OpponentDriver {
 
 export type Difficulty = 'easy' | 'medium' | 'hard';
 
-// Difficulty is purely how fast the bots move — they always play with the same
-// deduction skill. Each tier maps to a tick-delay range in ms.
+// Difficulty is how fast the bots move — they always play with the same
+// (perfect) deduction skill. Each tier maps to a tick-delay range in ms.
 export const DIFFICULTY_DELAYS: Record<Difficulty, { minDelay: number; maxDelay: number }> = {
 	easy: { minDelay: 1200, maxDelay: 2000 },
 	medium: { minDelay: 600, maxDelay: 1200 },
@@ -36,6 +37,10 @@ export interface BotOptions {
 	// Called when the bot correctly flags a mine (it always flags only cells it
 	// has proven are mines). Tactical uses this to send a mine to opponents.
 	onCorrectFlag?: () => void;
+	// Guessless mode: the bot's first move re-deals its board (same mine count)
+	// to be fully solvable from its chosen opening — the same guarantee humans
+	// get. On such boards the bot is a perfect solver and never guesses.
+	guessless?: boolean;
 }
 
 function key(r: number, c: number) {
@@ -79,49 +84,16 @@ function pick<T>(arr: T[]): T | undefined {
 }
 
 /**
- * One pass of classic single-cell minesweeper deduction over every revealed
- * number, returning provably-safe cells to open and provably-mined cells to
- * flag. Two rules:
- *   - if a number already touches as many flags as its count, its remaining
- *     covered neighbors are all safe;
- *   - if a number's covered (incl. flagged) neighbor count equals its count,
- *     those covered neighbors are all mines.
- */
-export function deduce(game: Game): {
-	safe: Array<[number, number]>;
-	mines: Array<[number, number]>;
-} {
-	// Plain dedup maps, not reactive state.
-	/* eslint-disable svelte/prefer-svelte-reactivity */
-	const safe = new Map<string, [number, number]>();
-	const mines = new Map<string, [number, number]>();
-	/* eslint-enable svelte/prefer-svelte-reactivity */
-	for (let r = 0; r < game.board.length; r++) {
-		for (let c = 0; c < game.board[0].length; c++) {
-			const cell = game.board[r][c];
-			if (!cell.isRevealed || cell.adjacentMines === 0) continue;
-			const covered = neighbors(game, r, c).filter(([i, j]) => !game.board[i][j].isRevealed);
-			const flagged = covered.filter(([i, j]) => game.board[i][j].isFlagged);
-			const unflagged = covered.filter(([i, j]) => !game.board[i][j].isFlagged);
-			if (flagged.length === cell.adjacentMines) {
-				for (const [i, j] of unflagged) safe.set(key(i, j), [i, j]);
-			} else if (covered.length === cell.adjacentMines) {
-				for (const [i, j] of unflagged) mines.set(key(i, j), [i, j]);
-			}
-		}
-	}
-	return { safe: [...safe.values()], mines: [...mines.values()] };
-}
-
-/**
- * A self-pacing sweeping bot that plays with basic deduction: it opens cells it
- * can prove are safe and flags cells it can prove are mines, and only guesses
- * when deduction is exhausted (so it can still die on a forced guess). Skill is
- * fixed; difficulty comes solely from how fast it ticks. Drives `game` via the
- * same `revealCell`/`flagCell` a human would. Reused by Blitz and Tactical.
+ * A self-pacing sweeping bot driven by the shared solver (`$lib/solver`): it
+ * opens cells it can prove are safe and flags cells it can prove are mines,
+ * and only guesses when deduction is exhausted. With `guessless` on, its first
+ * move re-deals the board to be solvable from its opening, so deduction is
+ * NEVER exhausted — the bot is a perfect solver and difficulty comes solely
+ * from how fast it ticks. Drives `game` via the same `revealCell`/`flagCell` a
+ * human would. Reused by Blitz and Tactical.
  *
- * Stops on its own once the game is won or lost; the host observes that via the
- * `onChange` callback (which fires after every move).
+ * Stops on its own once the game is won or lost; the host observes that via
+ * the `onChange` callback (which fires after every move).
  */
 export function makeSweepBot(game: Game, opts: BotOptions): OpponentDriver {
 	const minDelay = opts.minDelay ?? 600;
@@ -132,6 +104,25 @@ export function makeSweepBot(game: Game, opts: BotOptions): OpponentDriver {
 	function step() {
 		if (stopped) return;
 		if (game.checkLose() || game.checkWin()) return;
+
+		if (opts.guessless && game.isFirstClick) {
+			// Same first-click guarantee the human gets: pick an opening, re-deal
+			// the board (same mine count) until it's guessless from there — or, past
+			// guessless density, at least safely openable.
+			game.isFirstClick = false;
+			const r = Math.floor(Math.random() * game.board.length);
+			const c = Math.floor(Math.random() * game.board[0].length);
+			const seed =
+				findGuesslessSeed(game.rows, game.cols, game.mines, r, c) ??
+				findSafeOpeningSeed(game.rows, game.cols, game.mines, r, c);
+			if (seed !== null) {
+				game.board = game.generateBoard(game.rows, game.cols, game.mines, seed);
+			}
+			game.revealCell(r, c);
+			opts.onChange();
+			if (!game.checkLose() && !game.checkWin()) schedule();
+			return;
+		}
 
 		const { safe, mines } = deduce(game);
 
