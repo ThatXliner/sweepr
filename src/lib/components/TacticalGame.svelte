@@ -16,6 +16,7 @@
 	import Switch from '$lib/components/ui/switch/switch.svelte';
 	import type { RealtimeChannel } from '@supabase/supabase-js';
 	import { makeNetworkDriver, broadcastMove, type Coord } from '$lib/net/networkDriver';
+	import { findGuesslessSeed, findSafeOpeningSeed, pickGuesslessInjection } from '$lib/solver';
 
 	interface NetProps {
 		channel: RealtimeChannel;
@@ -251,6 +252,7 @@
 		}
 		return makeTacticalBot(games[id], {
 			...botSpeed(id),
+			guessless: true,
 			onChange: () => {
 				boards[id] = games[id].board;
 				boards = [...boards];
@@ -311,12 +313,25 @@
 		}
 	}
 
-	// A correct flag sends a mine to every other living player's board, dropped on
-	// a covered cell with no revealed neighbor so no visible number changes.
+	// Eliminate a player whose board has no room left for an attack mine —
+	// saturation IS the loss condition in guessless Tactical: fall behind and
+	// you get buried.
+	function bury(id: number) {
+		if (!alive[id]) return;
+		alive[id] = false;
+		alive = [...alive];
+		bots[id]?.stop();
+	}
+
+	// A correct flag sends a mine to every other living player's board, dropped
+	// on a covered cell with no revealed neighbor so no visible number changes.
+	// Guessless: the attacker prefers a landing spot that keeps the victim's
+	// board solvable by logic; a victim with NO eligible spot at all is buried.
 	// Online, the attacker picks each cell and broadcasts it (keyed by the
 	// victim's memberId) so every client injects at the SAME spot.
 	function sendMineToOpponents(fromId: number) {
 		const cells: Record<string, Coord> = {};
+		const buriedPeers: string[] = [];
 		for (const id of ids) {
 			if (id === fromId || !alive[id]) continue;
 			const peer = net?.peerForSlot?.[id] ?? null;
@@ -324,25 +339,42 @@
 			// a mirror only changes through its owner's broadcasts or relayed
 			// attacker-authoritative cells, never local RNG.
 			if (net && fromId !== HUMAN && peer) continue;
-			const cell = games[id].injectMine();
-			if (!cell) continue;
-			boards[id] = games[id].board;
-			if (net) {
-				if (peer)
-					cells[peer] = cell; // my attack on a live peer
-				else if (id === HUMAN) cells[net.memberId] = cell; // a local bot mined ME
+			let cell = pickGuesslessInjection(games[id]);
+			if (cell) games[id].injectMineAt(cell[0], cell[1]);
+			else cell = games[id].injectMine(); // no solvable spot — land anywhere eligible
+			if (cell) {
+				boards[id] = games[id].board;
+				if (net) {
+					if (peer)
+						cells[peer] = cell; // my attack on a live peer
+					else if (id === HUMAN) cells[net.memberId] = cell; // a local bot mined ME
+				}
+			} else {
+				// Board saturated: the mine has nowhere to land. Buried.
+				bury(id);
+				if (net) {
+					if (peer) buriedPeers.push(peer);
+					else if (id === HUMAN) buriedPeers.push(net.memberId);
+				}
 			}
 		}
 		boards = [...boards];
-		if (net && Object.keys(cells).length) {
-			broadcastMove(net.channel, { kind: 'attack', from: net.memberId, cells });
+		evaluate();
+		if (net && (Object.keys(cells).length || buriedPeers.length)) {
+			broadcastMove(net.channel, {
+				kind: 'attack',
+				from: net.memberId,
+				cells,
+				buried: buriedPeers
+			});
 		}
 	}
 
 	// Apply an attack a peer broadcast: inject at the exact cells the attacker
 	// chose, into whichever local board represents each victim (our own board if
-	// the victim is us, otherwise our mirror of that peer).
-	function applyAttack(cells: Record<string, Coord>) {
+	// the victim is us, otherwise our mirror of that peer). Victims in `buried`
+	// had no room left — the attacker is authoritative about that too.
+	function applyAttack(cells: Record<string, Coord>, buried: string[] = []) {
 		if (!net) return;
 		for (const [memberId, [r, c]] of Object.entries(cells)) {
 			const id = memberId === net.memberId ? HUMAN : slotForPeer(memberId);
@@ -350,7 +382,12 @@
 			games[id].injectMineAt(r, c);
 			boards[id] = games[id].board;
 		}
+		for (const memberId of buried) {
+			const id = memberId === net.memberId ? HUMAN : slotForPeer(memberId);
+			if (id >= 0) bury(id);
+		}
 		boards = [...boards];
+		evaluate();
 	}
 
 	function evaluate() {
@@ -388,6 +425,28 @@
 
 	function reveal(row: number, col: number) {
 		if (phase !== 'sweeping' || !alive[HUMAN] || !games.length) return;
+		if (games[HUMAN].isFirstClick) {
+			// Guessless: re-deal this board on the first click so it's fully
+			// solvable by logic. The mines opponents placed/injected so far set the
+			// COUNT (that's the attack); the layout is the dealer's. Online, the
+			// authoritative layout is broadcast before the reveal that follows it.
+			games[HUMAN].isFirstClick = false;
+			// Past guessless density (a board swollen with attack mines), degrade to
+			// a safe opening — the lethality of a saturating board is the point.
+			const seed =
+				findGuesslessSeed(rows, cols, games[HUMAN].mines, row, col) ??
+				findSafeOpeningSeed(rows, cols, games[HUMAN].mines, row, col);
+			if (seed !== null) {
+				games[HUMAN].board = games[HUMAN].generateBoard(rows, cols, games[HUMAN].mines, seed);
+				if (net) {
+					broadcastMove(net.channel, {
+						kind: 'newboard',
+						from: net.memberId,
+						mines: minesOf(games[HUMAN])
+					});
+				}
+			}
+		}
 		boards[HUMAN] = games[HUMAN].revealCell(row, col);
 		boards = [...boards];
 		if (net) broadcastMove(net.channel, { kind: 'reveal', from: net.memberId, r: row, c: col });
@@ -398,6 +457,9 @@
 	}
 	function flag(row: number, col: number) {
 		if (phase !== 'sweeping' || !alive[HUMAN] || !games.length) return;
+		// No flagging before the first reveal: the board re-deals at first click,
+		// so pre-click flags (and blind attack-fishing) would be meaningless.
+		if (games[HUMAN].isFirstClick) return;
 		const cell = games[HUMAN].board[row][col];
 		const wasFlagged = cell.isFlagged;
 		boards[HUMAN] = games[HUMAN].flagCell(row, col);
@@ -451,7 +513,7 @@
 					placementsReceived.add(payload.from);
 					maybeStartSweep();
 				} else if (payload.kind === 'attack') {
-					applyAttack(payload.cells);
+					applyAttack(payload.cells, payload.buried);
 				} else if (payload.kind === 'newboard' && !games.length) {
 					// A peer built (or regenerated) before we finished building — hold
 					// the layout and apply it at our own build time.
@@ -495,6 +557,11 @@
 			<p>
 				<strong>Attack:</strong> correctly flag a mine and you send a hidden mine to every opponent's
 				board. Clear your whole board and you get a fresh, harder one.
+			</p>
+			<p>
+				<strong>Guessless:</strong> your board always stays solvable by pure logic — attack mines
+				only land where deduction still wins. But they pile into the untouched part of your board,
+				and when an attack finds no room left, you're <strong>buried</strong> and out. Sweep fast.
 			</p>
 			<p>
 				Last sweeper alive wins. {#if net}You're in a live 16-player match.{:else}Opponents are

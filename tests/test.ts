@@ -108,19 +108,20 @@ test('blitz: flagging marks a hidden cell and invert controls swaps actions', as
 	await expect(b).toHaveText('🚩');
 });
 
-test('tactical: bots sweep and start getting eliminated', async ({ page }) => {
+test('tactical: bots sweep their guessless boards and make progress', async ({ page }) => {
 	await openTacticalBotGame(page);
-	// Spend all 10 mines on the first opponent to densely mine its board.
+	// Spend all 10 mines on the first opponent. Guessless mode turns those into
+	// the board's mine COUNT — the layout re-deals solvable on first click, so
+	// dense mining no longer insta-kills; perfect bots survive and sweep.
 	const oppCells = page.locator('button.h-7:not(.rounded-full)');
 	for (let i = 0; i < 10; i++) await oppCells.nth(i).click();
 	await expect(page.getByText('Mines left:')).toContainText('0');
 
 	await page.getByRole('button', { name: /Ready/ }).click();
 
-	// 16-player arena: bots sweep their (opponent-mined) boards and start dying.
-	// At least one 💀 appears on the flanks within a reasonable window. (Asserting
-	// a single final winner is impractical with 15 bots, so we check progress.)
-	await expect(page.getByText('💀').first()).toBeVisible({ timeout: 30000 });
+	// Perfect solvers on solvable boards: every bot makes deterministic progress.
+	// Some mini-board nameplate ticks past zero cleared within a few moves.
+	await expect(page.getByText(/P\d+ · [1-9]/).first()).toBeVisible({ timeout: 30000 });
 });
 
 test('tactical: opponent boards are not clickable during the sweep', async ({ page }) => {
