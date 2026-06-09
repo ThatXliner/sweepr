@@ -20,6 +20,14 @@ test('landing page shows the three modes', async ({ page }) => {
 	await expect(page.getByRole('link', { name: /Blitz/ })).toBeVisible();
 });
 
+test('classic: guess-less mode is on by default and toggleable', async ({ page }) => {
+	await page.goto('/classic');
+	const toggle = page.getByLabel('Guess-less mode');
+	await expect(toggle).toBeChecked();
+	await toggle.click();
+	await expect(toggle).not.toBeChecked();
+});
+
 test('classic renders the easy board', async ({ page }) => {
 	await page.goto('/classic');
 	// Tabs.Root mounts every panel, so scope to the visible (Easy) one: 9x9 = 81.
