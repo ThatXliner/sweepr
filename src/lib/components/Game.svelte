@@ -3,6 +3,7 @@
 	import Switch from '$lib/components/ui/switch/switch.svelte';
 	import { untrack } from 'svelte';
 	import { Game, type Board } from '$lib/gameLogic.svelte';
+	import { findGuesslessSeed, isGuesslessOpening } from '$lib/solver';
 	import Board_ from './Board.svelte';
 	import Time from './Time.svelte';
 
@@ -34,13 +35,28 @@
 		});
 	});
 	function reveal(row: number, col: number) {
-		// Guarantee that the first cell clicked is not a mine.
+		// Guarantee that the first cell clicked is not a mine — and, in guessless
+		// mode, that the whole board is solvable by pure logic from that click.
 		// For some reason, this has to be done in the click handler
 		// otherwise the UI will not update
 		if (game.isFirstClick) {
 			game.isFirstClick = false;
-			while (game.board[row][col].isMine || game.board[row][col].adjacentMines != 0) {
-				game.board = game.generateBoard(game.rows, game.cols, game.mines);
+			let dealt = false;
+			if (guessless && !isGuesslessOpening(game, row, col)) {
+				const seed = findGuesslessSeed(game.rows, game.cols, game.mines, row, col);
+				if (seed !== null) {
+					game.board = game.generateBoard(game.rows, game.cols, game.mines, seed);
+					dealt = true;
+				}
+			} else if (guessless) {
+				dealt = true; // the dealt board already qualifies
+			}
+			if (!dealt) {
+				// Guessless off, or (rarely) the seed search capped out: plain
+				// first-click flood safety.
+				while (game.board[row][col].isMine || game.board[row][col].adjacentMines != 0) {
+					game.board = game.generateBoard(game.rows, game.cols, game.mines);
+				}
 			}
 			startTimer();
 		}
@@ -79,6 +95,9 @@
 	let timer: ReturnType<typeof setInterval>;
 	let elapsedTime: number = $state(0);
 	let invertControls = $state(false);
+	// Guessless: the board re-deals on the first click until it's fully solvable
+	// by logic — no forced guesses. On by default; takes effect per new board.
+	let guessless = $state(true);
 
 	function startTimer() {
 		startTime = Date.now();
@@ -113,7 +132,7 @@
 				: 'Left-click reveals, right-click flags'}. Keyboard: arrows move, Enter reveals, F flags.
 		</p>
 		<div class="flex items-center gap-2">
-			<Switch id="guess-less-mode" disabled />
+			<Switch id="guess-less-mode" bind:checked={guessless} />
 			<Label for="guess-less-mode">Guess-less mode</Label>
 		</div>
 		<div class="flex items-center gap-2">
