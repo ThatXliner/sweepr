@@ -13,3 +13,6 @@ build/
 
 # Supabase CLI local cache
 supabase/.temp/
+
+# Playwright artifacts
+test-results/

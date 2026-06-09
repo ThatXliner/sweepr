@@ -63,12 +63,29 @@ test('tactical: two players are matched into one arena', async ({ browser }) => 
 		await expect(p.getByText('Place your mines')).toBeVisible({ timeout: 25000 });
 	}
 
-	// Both ready up with no mines placed; the sweep arena should build (16 boards)
-	// once each client's placement arrives.
+	// A drops two mines on the live opponent (slot 1 on both clients is the other
+	// human) before readying; the sweep arena should build (16 boards) once each
+	// client's placement arrives.
+	const aOpp = pa.locator('[role="grid"][aria-label="Opponent 1\'s board"] button');
+	await aOpp.nth(0).click();
+	await aOpp.nth(1).click();
 	for (const p of [pa, pb]) await p.getByRole('button', { name: /Ready/ }).click();
 	for (const p of [pa, pb]) {
 		await expect(p.locator('[role="grid"]')).toHaveCount(16, { timeout: 20000 });
 	}
+
+	// Mirror exactness: A reveals a cell on its own board; the flood-filled
+	// reveal count on A's real board must show up identically on B's mirror of A
+	// (slot 1). This only holds if both clients agree on A's full mine layout —
+	// the regression that slot-keyed messages used to break.
+	await pa.locator('[role="grid"][aria-label="Your board"] button').nth(40).click();
+	const revealedOnA = await pa
+		.locator('[role="grid"][aria-label="Your board"] button.bg-cell-revealed')
+		.count();
+	expect(revealedOnA).toBeGreaterThan(0);
+	await expect(
+		pb.locator('[role="grid"][aria-label="Opponent 1\'s board"] button.bg-cell-revealed')
+	).toHaveCount(revealedOnA, { timeout: 10000 });
 
 	await a.close();
 	await b.close();
