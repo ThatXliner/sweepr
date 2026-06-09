@@ -21,7 +21,9 @@ export type NetMsg =
 	| { kind: 'placement'; from: string; byTarget: Record<string, Coord[]> }
 	// Tactical attack: the exact cell to inject, keyed by the victim's memberId
 	// (attacker-authoritative so every client injects at the same spot).
-	| { kind: 'attack'; from: string; cells: Record<string, Coord> }
+	// `buried` lists victims whose boards had no room left for the mine —
+	// saturation is elimination in guessless Tactical.
+	| { kind: 'attack'; from: string; cells: Record<string, Coord>; buried?: string[] }
 	// Tactical: the sender's CURRENT board layout — broadcast once after the
 	// initial build and again on every regen, so peers' mirrors stay exact even
 	// though each client's local bots mine the sender's board with local RNG.
