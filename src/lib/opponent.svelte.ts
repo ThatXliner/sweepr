@@ -23,6 +23,15 @@ export const DIFFICULTY_DELAYS: Record<Difficulty, { minDelay: number; maxDelay:
 	hard: { minDelay: 250, maxDelay: 500 }
 };
 
+// ...with one humanizing exception: easy bots occasionally misclick — they
+// reveal a random covered cell instead of their deduced move, which can kill
+// them. Probability per move; zero for the serious tiers.
+export const DIFFICULTY_MISCLICK: Record<Difficulty, number> = {
+	easy: 0.04,
+	medium: 0,
+	hard: 0
+};
+
 export const DIFFICULTIES: Difficulty[] = ['easy', 'medium', 'hard'];
 
 export interface BotOptions {
@@ -41,6 +50,9 @@ export interface BotOptions {
 	// to be fully solvable from its chosen opening — the same guarantee humans
 	// get. On such boards the bot is a perfect solver and never guesses.
 	guessless?: boolean;
+	// Chance per move that the bot misclicks (reveals a random covered cell
+	// instead of its deduced move). The easy tier's beatable-bot lever.
+	misclickChance?: number;
 }
 
 function key(r: number, c: number) {
@@ -122,6 +134,17 @@ export function makeSweepBot(game: Game, opts: BotOptions): OpponentDriver {
 			opts.onChange();
 			if (!game.checkLose() && !game.checkWin()) schedule();
 			return;
+		}
+
+		if ((opts.misclickChance ?? 0) > 0 && Math.random() < opts.misclickChance!) {
+			// Fumble: open a random covered cell, deductions be damned. May die.
+			const target = pick(unrevealedCells(game));
+			if (target) {
+				game.revealCell(target[0], target[1]);
+				opts.onChange();
+				if (!game.checkLose() && !game.checkWin()) schedule();
+				return;
+			}
 		}
 
 		const { safe, mines } = deduce(game);
