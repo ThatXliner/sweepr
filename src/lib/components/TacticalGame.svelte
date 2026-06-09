@@ -10,6 +10,7 @@
 	} from '$lib/opponent.svelte';
 	import Board_ from './Board.svelte';
 	import ModeInfo from './ModeInfo.svelte';
+	import SweeperLoader from './SweeperLoader.svelte';
 	import Time from './Time.svelte';
 	import Label from '$lib/components/ui/label/label.svelte';
 	import Switch from '$lib/components/ui/switch/switch.svelte';
@@ -89,6 +90,7 @@
 	let timer: ReturnType<typeof setInterval> | undefined;
 	let invertControls = $state(false);
 	let result = $state('');
+	let aliveCount = $derived(alive.filter(Boolean).length);
 
 	// --- Placement phase ---
 
@@ -135,15 +137,31 @@
 	// eslint-disable-next-line svelte/prefer-svelte-reactivity
 	const placementsReceived = new Set<string>();
 	let humanPeers: string[] = [];
+	let myReady = false;
+	// Board layouts peers broadcast before we'd built our boards (a peer who
+	// builds first sends its `newboard` while we may still be waiting on a third
+	// player's placement). Applied at build time; after build the network driver
+	// handles `newboard` directly. Never rendered, so a plain Map is correct.
+	// eslint-disable-next-line svelte/prefer-svelte-reactivity
+	const pendingLayouts = new Map<string, Coord[]>();
 
-	// `myByTarget`: where I dropped mines, keyed by target slot. Built from
-	// `placements` (only the human places interactively).
-	function myPlacementByTarget(): Record<number, Coord[]> {
-		const out: Record<number, Coord[]> = {};
+	// Where I dropped mines on HUMAN PEERS, keyed by their memberId. Slot indices
+	// are local to each client, so only memberIds travel on the wire. Mines I
+	// placed on bot slots stay local — bots are per-client simulations.
+	function myPlacementByMember(): Record<string, Coord[]> {
+		const out: Record<string, Coord[]> = {};
 		for (const [target, coords] of placements) {
-			if (target !== HUMAN && coords.length) out[target] = coords.map(([r, c]) => [r, c]);
+			const peer = net?.peerForSlot?.[target];
+			if (peer && coords.length) out[peer] = coords.map(([r, c]) => [r, c]);
 		}
 		return out;
+	}
+
+	function minesOf(game: Game): Coord[] {
+		const mines: Coord[] = [];
+		for (let r = 0; r < rows; r++)
+			for (let c = 0; c < cols; c++) if (game.board[r][c].isMine) mines.push([r, c]);
+		return mines;
 	}
 
 	function onReady() {
@@ -154,17 +172,20 @@
 		// Online: broadcast my placement, then wait for every human peer's before
 		// building boards (bots' placement is generated locally at build time).
 		humanPeers = (net.peerForSlot ?? []).filter((p): p is string => !!p);
+		myReady = true;
 		broadcastMove(net.channel, {
 			kind: 'placement',
 			from: net.memberId,
-			byTarget: myPlacementByTarget()
+			byTarget: myPlacementByMember()
 		});
 		phase = 'sweeping'; // shows a "waiting" state until placements arrive
 		maybeStartSweep();
 	}
 
 	function maybeStartSweep() {
-		if (!net || games.length) return; // already built
+		// Don't build until I've readied up myself — a peer's placement can arrive
+		// while I'm still placing mines.
+		if (!net || !myReady || games.length) return;
 		if (humanPeers.some((p) => !placementsReceived.has(p))) return; // still waiting
 		buildBoards();
 	}
@@ -175,6 +196,23 @@
 		boards = games.map((g) => g.board);
 		alive = ids.map(() => true);
 		cleared = ids.map(() => 0);
+		if (net) {
+			// My real board includes mines my local bots dropped on me, which peers
+			// can't derive — broadcast the authoritative layout so their mirror of me
+			// is exact. Likewise apply any layouts peers already sent.
+			broadcastMove(net.channel, {
+				kind: 'newboard',
+				from: net.memberId,
+				mines: minesOf(games[HUMAN])
+			});
+			net.peerForSlot?.forEach((peer, id) => {
+				const mines = peer ? pendingLayouts.get(peer) : undefined;
+				if (mines) {
+					games[id] = Game.fromMines(rows, cols, mines);
+					boards[id] = games[id].board;
+				}
+			});
+		}
 		startTime = Date.now();
 		timer = setInterval(() => (elapsed = Date.now() - startTime), 100);
 		bots = ids.map((id) => (id === HUMAN ? { start() {}, stop() {} } : makeBot(id)));
@@ -263,10 +301,7 @@
 		// peers rebuild from the `newboard` message via the network driver. So a
 		// network-driven slot never regenerates locally.
 		if (id === HUMAN && net) {
-			const mines: Coord[] = [];
-			for (let r = 0; r < rows; r++)
-				for (let c = 0; c < cols; c++) if (fresh.board[r][c].isMine) mines.push([r, c]);
-			broadcastMove(net.channel, { kind: 'newboard', from: net.memberId, mines });
+			broadcastMove(net.channel, { kind: 'newboard', from: net.memberId, mines: minesOf(fresh) });
 		}
 		// Local bots hold a reference to the old board; re-point them at the new one.
 		if (id !== HUMAN && !net?.peerForSlot?.[id]) {
@@ -278,33 +313,42 @@
 
 	// A correct flag sends a mine to every other living player's board, dropped on
 	// a covered cell with no revealed neighbor so no visible number changes.
-	// Online, the attacker picks each cell and broadcasts it so every client
-	// injects at the SAME spot (random would desync).
+	// Online, the attacker picks each cell and broadcasts it (keyed by the
+	// victim's memberId) so every client injects at the SAME spot.
 	function sendMineToOpponents(fromId: number) {
-		const chosen: Record<number, Coord> = {};
+		const cells: Record<string, Coord> = {};
 		for (const id of ids) {
 			if (id === fromId || !alive[id]) continue;
+			const peer = net?.peerForSlot?.[id] ?? null;
+			// Online, a local bot's attack must not touch a human peer's mirror —
+			// a mirror only changes through its owner's broadcasts or relayed
+			// attacker-authoritative cells, never local RNG.
+			if (net && fromId !== HUMAN && peer) continue;
 			const cell = games[id].injectMine();
-			if (cell) {
-				chosen[id] = cell;
-				boards[id] = games[id].board;
+			if (!cell) continue;
+			boards[id] = games[id].board;
+			if (net) {
+				if (peer)
+					cells[peer] = cell; // my attack on a live peer
+				else if (id === HUMAN) cells[net.memberId] = cell; // a local bot mined ME
 			}
 		}
 		boards = [...boards];
-		if (net && fromId === HUMAN) {
-			broadcastMove(net.channel, { kind: 'attack', from: net.memberId, cells: chosen });
+		if (net && Object.keys(cells).length) {
+			broadcastMove(net.channel, { kind: 'attack', from: net.memberId, cells });
 		}
 	}
 
-	// Apply an attack a peer broadcast: inject at the exact cells they chose.
-	function applyAttack(cells: Record<number, Coord>) {
-		for (const key of Object.keys(cells)) {
-			const id = Number(key);
-			if (!alive[id]) continue;
-			const [r, c] = cells[id];
+	// Apply an attack a peer broadcast: inject at the exact cells the attacker
+	// chose, into whichever local board represents each victim (our own board if
+	// the victim is us, otherwise our mirror of that peer).
+	function applyAttack(cells: Record<string, Coord>) {
+		if (!net) return;
+		for (const [memberId, [r, c]] of Object.entries(cells)) {
+			const id = memberId === net.memberId ? HUMAN : slotForPeer(memberId);
+			if (id < 0 || !alive[id] || !games[id]) continue;
 			games[id].injectMineAt(r, c);
 			boards[id] = games[id].board;
-			checkPlayer(id);
 		}
 		boards = [...boards];
 	}
@@ -385,17 +429,33 @@
 			net.channel.on('broadcast', { event: 'move' }, ({ payload }) => {
 				if (payload.from === net.memberId) return;
 				if (payload.kind === 'placement') {
-					// Merge a peer's placement coords into the shared placements map.
-					for (const key of Object.keys(payload.byTarget)) {
-						const target = Number(key);
-						const list = placements.get(target);
-						if (list) list.push(...payload.byTarget[target]);
+					// Consume only the mines addressed to ME — entries for other peers
+					// are theirs to apply; their boards reach us via their `newboard`
+					// layout broadcast.
+					const mine = payload.byTarget[net.memberId];
+					if (mine) {
+						// Two peers can drop on the same cell; dedupe so the board's
+						// mine/flag counters stay honest.
+						const list = placements.get(HUMAN)!;
+						// Transient dedup lookup; reactivity comes from `placements`.
+						// eslint-disable-next-line svelte/prefer-svelte-reactivity
+						const have = new Set(list.map(([r, c]) => `${r},${c}`));
+						for (const [r, c] of mine) {
+							if (!have.has(`${r},${c}`)) {
+								have.add(`${r},${c}`);
+								list.push([r, c]);
+							}
+						}
+						placements = new Map(placements);
 					}
-					placements = new Map(placements);
 					placementsReceived.add(payload.from);
 					maybeStartSweep();
 				} else if (payload.kind === 'attack') {
 					applyAttack(payload.cells);
+				} else if (payload.kind === 'newboard' && !games.length) {
+					// A peer built (or regenerated) before we finished building — hold
+					// the layout and apply it at our own build time.
+					pendingLayouts.set(payload.from, payload.mines);
 				}
 			});
 			net.channel.on('presence', { event: 'leave' }, ({ leftPresences }) => {
@@ -443,13 +503,13 @@
 		</ModeInfo>
 	</div>
 	{#if phase === 'placing'}
-		<h2 class="text-2xl font-bold">Place your mines</h2>
+		<h2 class="text-4xl font-black tracking-tight">Place your mines</h2>
 		<div class="flex items-center gap-2 text-sm">
 			<Label for="tactical-difficulty">Bot difficulty</Label>
 			<select
 				id="tactical-difficulty"
 				bind:value={difficulty}
-				class="rounded-md border bg-background px-2 py-1 capitalize focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+				class="rounded-md border bg-background px-2 py-1 capitalize focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
 			>
 				{#each DIFFICULTIES as d (d)}
 					<option value={d} class="capitalize">{d}</option>
@@ -458,12 +518,14 @@
 		</div>
 		<p class="text-sm text-muted-foreground">
 			Click opponent boards to drop mines on them. Mines left:
-			<span class="font-bold text-foreground">{minesLeft}</span>
+			<span class="text-base font-black text-foreground tabular-nums">{minesLeft}</span>
 		</p>
-		<div class="flex flex-wrap items-start justify-center gap-8">
+		<div class="flex max-w-5xl flex-wrap items-start justify-center gap-x-6 gap-y-4">
 			{#each ids.filter((id) => id !== HUMAN) as id (id)}
 				<div class="flex flex-col items-center gap-1">
-					<h3 class="font-semibold text-red-600 dark:text-red-400">Opponent {id}</h3>
+					<h3 class="font-mono text-xs font-semibold text-red-600 dark:text-red-400">
+						P{id}{#if net?.peerForSlot?.[id]}<span title="live player"> ●</span>{/if}
+					</h3>
 					<Board_
 						board={emptyBoard}
 						interactive={minesLeft > 0}
@@ -478,18 +540,30 @@
 			{/each}
 		</div>
 		<button
-			class="rounded-md bg-red-600 px-4 py-2 font-bold text-white shadow transition-transform hover:scale-105 hover:bg-red-700 focus-visible:ring-4 focus-visible:ring-red-400 focus-visible:outline-none"
+			class="rounded-md bg-red-600 px-6 py-3 text-lg font-black text-white shadow-lg transition-transform hover:scale-105 hover:bg-red-700 focus-visible:ring-4 focus-visible:ring-red-400 focus-visible:outline-none"
 			onclick={onReady}
 		>
 			Ready — start sweeping
 		</button>
 	{:else if !games.length}
 		<!-- Online: placed our mines, waiting for opponents to ready up. -->
-		<p class="text-lg">Waiting for opponents…</p>
+		<div class="flex flex-col items-center gap-4 py-16">
+			<SweeperLoader label="Waiting for opponents" />
+			<p class="text-2xl font-black tracking-tight">Waiting for opponents…</p>
+			<p class="text-sm text-muted-foreground italic">the sweep starts when everyone's ready</p>
+		</div>
 	{:else}
-		<Time milliseconds={elapsed} />
+		<div class="flex items-center gap-5">
+			<Time milliseconds={elapsed} />
+			<p class="text-2xl font-black tracking-tight tabular-nums">
+				<span class="text-red-600 dark:text-red-400">{aliveCount}</span><span
+					class="text-muted-foreground">/{players}</span
+				>
+				<span class="text-base font-semibold text-muted-foreground">alive</span>
+			</p>
+		</div>
 		{#if phase === 'done'}
-			<h2 class="text-2xl font-bold">{result}</h2>
+			<h2 class="text-3xl font-black tracking-tight sm:text-4xl">{result}</h2>
 		{:else}
 			<p class="text-sm text-muted-foreground">
 				{invertControls
@@ -507,10 +581,19 @@
 				<Board_
 					board={boards[id]}
 					interactive={false}
-					cellSize="h-2 w-2"
+					cellSize="h-2 w-2 overflow-hidden text-[7px] leading-none"
 					unrevealedBg="bg-red-500/20"
 					label="Opponent {id}'s board"
 				/>
+				<span
+					class="font-mono text-[10px] leading-tight font-semibold {alive[id]
+						? 'text-muted-foreground'
+						: 'text-red-600 dark:text-red-400'}"
+				>
+					P{id}{#if net?.peerForSlot?.[id]}<span title="live player"> ●</span>{/if} · {alive[id]
+						? clearedCount(boards[id])
+						: 'KO'}
+				</span>
 				{#if !alive[id]}
 					<span class="absolute inset-0 flex items-center justify-center text-lg">💀</span>
 				{/if}
@@ -518,19 +601,26 @@
 		{/snippet}
 
 		<!-- tetr.io-style arena: your board centred and large, the 15 opponents as
-			tiny live boards down the left and right flanks. -->
-		<div class="flex w-full items-start justify-center gap-4">
-			<div class="flex flex-wrap content-start justify-end gap-2" style="max-width:22rem">
+			tiny live boards down the left and right flanks. On small screens the
+			flanks drop below your board instead of squeezing it. -->
+		<div
+			class="flex w-full flex-col items-center gap-6 md:flex-row md:items-start md:justify-center"
+		>
+			<div class="order-2 grid grid-cols-4 content-start gap-2 md:order-1">
 				{#each leftFlank as id (id)}
 					{@render miniBoard(id)}
 				{/each}
 			</div>
 
-			<div class="flex shrink-0 flex-col items-center gap-1" class:opacity-50={!alive[HUMAN]}>
-				<h3 class="font-semibold">
+			<div
+				class="order-1 flex shrink-0 flex-col items-center gap-1.5 md:order-2 md:px-4"
+				class:opacity-50={!alive[HUMAN]}
+			>
+				<h3 class="text-lg font-black tracking-tight tabular-nums">
 					You — {clearedCount(boards[HUMAN])}
 					{#if cleared[HUMAN] > 0}
-						<span class="text-xs font-normal text-muted-foreground">({cleared[HUMAN]} cleared)</span
+						<span class="text-xs font-normal text-muted-foreground"
+							>({cleared[HUMAN]} boards cleared)</span
 						>
 					{/if}
 				</h3>
@@ -545,7 +635,7 @@
 				<span class="text-sm text-muted-foreground">{alive[HUMAN] ? 'alive' : 'eliminated'}</span>
 			</div>
 
-			<div class="flex flex-wrap content-start justify-start gap-2" style="max-width:22rem">
+			<div class="order-3 grid grid-cols-4 content-start gap-2">
 				{#each rightFlank as id (id)}
 					{@render miniBoard(id)}
 				{/each}

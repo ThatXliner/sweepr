@@ -8,23 +8,26 @@ export type Coord = [number, number];
 /**
  * Every gameplay message a peer broadcasts. One Realtime event (`move`) carries
  * all of them, discriminated by `kind`, so a single listener handles the lot.
- * `from` is the sender's memberId; `slot` (where present) is the player index.
+ * `from` is the sender's memberId.
  */
 export type NetMsg =
 	| { kind: 'reveal'; from: string; r: number; c: number }
 	| { kind: 'flag'; from: string; r: number; c: number }
 	// Blitz: the sender's board for this round, as a seed (peers rebuild it).
 	| { kind: 'seed'; from: string; seed: number }
-	// Tactical placement phase: mines this player dropped, keyed by target slot.
-	| { kind: 'placement'; from: string; byTarget: Record<number, Coord[]> }
-	// Tactical attack: the exact cell to inject on each target slot's board.
-	| { kind: 'attack'; from: string; cells: Record<number, Coord> }
-	// Tactical board regen on clear: the fresh board's mine coordinates.
+	// Tactical placement phase: mines this player dropped, keyed by the TARGET's
+	// memberId. Slot indices are local to each client (slot 0 = self), so only
+	// memberIds have a shared meaning on the wire.
+	| { kind: 'placement'; from: string; byTarget: Record<string, Coord[]> }
+	// Tactical attack: the exact cell to inject, keyed by the victim's memberId
+	// (attacker-authoritative so every client injects at the same spot).
+	| { kind: 'attack'; from: string; cells: Record<string, Coord> }
+	// Tactical: the sender's CURRENT board layout — broadcast once after the
+	// initial build and again on every regen, so peers' mirrors stay exact even
+	// though each client's local bots mine the sender's board with local RNG.
 	| { kind: 'newboard'; from: string; mines: Coord[] }
 	// Player hit a mine / was eliminated.
-	| { kind: 'dead'; from: string }
-	// Score readout (Blitz progress, lightweight).
-	| { kind: 'score'; from: string; cleared: number; alive: boolean };
+	| { kind: 'dead'; from: string };
 
 export const MOVE_EVENT = 'move';
 
@@ -81,7 +84,7 @@ export function makeNetworkDriver(
 				break;
 			default:
 				// reveal/flag/newboard/dead are this driver's concern; placement,
-				// attack, seed and score are handled by the host's own listener.
+				// attack and seed are handled by the host's own listener.
 				return;
 		}
 		opts.onChange();

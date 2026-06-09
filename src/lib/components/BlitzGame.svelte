@@ -102,10 +102,11 @@
 			finish();
 		} else if (oppGame.checkWin()) {
 			oppBanked += countCleared(oppGame.board);
-			bot?.stop();
 			// Local bot picks its own fresh seed; online, the peer tells us via a
-			// `newboard` message (handled below), so only reseed here for bots.
+			// `seed` message (handled below) and the driver must KEEP listening so
+			// their moves on the next board still arrive.
 			if (!net) {
+				bot?.stop();
 				oppGame = new Game(rows, cols, mines, newSeed());
 				oppBoard = oppGame.board;
 				startOpponent();
@@ -136,11 +137,15 @@
 		bot.start();
 	}
 
-	function finish() {
+	function finish(override?: string) {
 		if (over) return;
 		over = true;
 		clearInterval(timer);
 		bot?.stop();
+		if (override) {
+			result = override;
+			return;
+		}
 
 		const playerScore = playerBanked + countCleared(playerGame.board);
 		const oppScore = oppBanked + countCleared(oppGame.board);
@@ -239,11 +244,26 @@
 				else if (oppSeen) {
 					oppAlive = false;
 					net.onForfeit?.();
-					finish();
+					finish('You win — opponent left the match.');
 				}
 			};
 			net.channel.on('presence', { event: 'sync' }, checkOpponentPresent);
 			net.channel.on('presence', { event: 'leave' }, checkOpponentPresent);
+			// If a matchmaking race strands us with a partner who accepted a
+			// different match, they never join the game channel at all — don't hang
+			// the match forever waiting for them.
+			const joinGuard = setTimeout(() => {
+				if (!oppSeen && !over) {
+					oppAlive = false;
+					net.onForfeit?.();
+					finish('You win — opponent never connected.');
+				}
+			}, 20_000);
+			return () => {
+				clearTimeout(joinGuard);
+				clearInterval(timer);
+				bot?.stop();
+			};
 		}
 		// Stop the timer/driver if the component unmounts mid-match.
 		return () => {
@@ -275,7 +295,16 @@
 			</p>
 		</ModeInfo>
 	</div>
-	<Time milliseconds={elapsed} />
+	<!-- Countdown chrome: time remaining, with a draining mode-color bar. -->
+	<div class="flex w-full max-w-xl flex-col items-center gap-1.5">
+		<Time milliseconds={Math.max(0, timeCap - elapsed)} />
+		<div class="h-1.5 w-full overflow-hidden rounded-full bg-muted" aria-hidden="true">
+			<div
+				class="h-full rounded-full bg-yellow-500"
+				style="width: {Math.max(0, 100 - (elapsed / timeCap) * 100)}%"
+			></div>
+		</div>
+	</div>
 	{#if !net && !over && elapsed === 0}
 		<div class="flex items-center gap-2 text-sm">
 			<Label for="blitz-difficulty">Bot difficulty</Label>
@@ -291,7 +320,7 @@
 		</div>
 	{/if}
 	{#if over}
-		<h2 class="text-2xl font-bold">{result}</h2>
+		<h2 class="text-3xl font-black tracking-tight sm:text-4xl">{result}</h2>
 	{:else}
 		<p class="text-sm text-muted-foreground">
 			{invertControls
@@ -301,10 +330,10 @@
 	{/if}
 
 	<div
-		class="flex flex-col items-center gap-8 sm:flex-row sm:items-start sm:justify-center sm:gap-12"
+		class="flex flex-col items-center gap-8 sm:flex-row sm:items-start sm:justify-center sm:gap-6"
 	>
-		<div class="flex flex-col items-center gap-1">
-			<h3 class="font-semibold">You — {playerScore} cleared</h3>
+		<div class="flex flex-col items-center gap-1.5">
+			<h3 class="text-lg font-black tracking-tight tabular-nums">You — {playerScore} cleared</h3>
 			<Board_
 				board={playerBoard}
 				interactive={!over}
@@ -319,9 +348,25 @@
 			</div>
 		</div>
 
-		<div class="flex flex-col items-center gap-1">
-			<h3 class="font-semibold text-yellow-600 dark:text-yellow-400">
+		<!-- The vs divider only earns its place once the boards sit side by side. -->
+		<span
+			class="hidden rounded-md bg-yellow-500 px-2.5 py-1 font-mono text-lg font-black text-white sm:block sm:self-center"
+			aria-hidden="true"
+		>
+			VS
+		</span>
+
+		<div class="flex flex-col items-center gap-1.5">
+			<h3
+				class="flex items-center gap-2 text-lg font-black tracking-tight text-yellow-600 tabular-nums dark:text-yellow-400"
+			>
 				Opponent — {oppScore} cleared
+				{#if net}
+					<span
+						class="rounded bg-yellow-500 px-1.5 py-0.5 text-[10px] font-black tracking-widest text-white uppercase"
+						>live</span
+					>
+				{/if}
 			</h3>
 			<Board_
 				board={oppBoard}

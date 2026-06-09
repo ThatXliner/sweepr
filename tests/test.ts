@@ -36,8 +36,13 @@ test('blitz: clicking starts the match and the bot opponent sweeps', async ({ pa
 	// Open a player cell to start the timer + bot.
 	await page.locator('button.h-6:not(.rounded-full)').nth(40).click();
 
-	// The bot should clear at least one cell within a few seconds.
-	await expect(page.getByText(/Opponent — 0 cleared/)).toBeHidden({ timeout: 6000 });
+	// The bot should clear at least one cell within a few seconds — unless its
+	// random probe hits a mine first, which legitimately ends the match at 0.
+	await expect(
+		page
+			.getByText(/Opponent — [1-9]\d* cleared/)
+			.or(page.getByText('You win — opponent hit a mine!'))
+	).toBeVisible({ timeout: 6000 });
 	await expect(page.getByText(/You — [1-9]/)).toBeVisible();
 });
 
