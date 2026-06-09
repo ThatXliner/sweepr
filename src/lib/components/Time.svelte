@@ -9,6 +9,8 @@
 
 	let seconds = $derived(Math.floor(milliseconds / 1000) % 60);
 	let minutes = $derived(Math.floor(milliseconds / 1000 / 60));
+	// Hundredths, not raw milliseconds — a readable mm:ss.cc race clock.
+	let centis = $derived(Math.floor((milliseconds % 1000) / 10));
 
 	function formatTime(value: number) {
 		return value.toString().padStart(2, '0');
@@ -16,14 +18,11 @@
 </script>
 
 <Card.Root>
-	<!-- <Card.Header>
-	  <Card.Title>Card Title</Card.Title>
-	  <Card.Description>Card Description</Card.Description>
-	</Card.Header> -->
 	<Card.Content>
-		<div>{formatTime(minutes)}:{formatTime(seconds)}:{formatTime(milliseconds)}</div>
+		<div class="font-mono text-lg font-bold tabular-nums">
+			{formatTime(minutes)}:{formatTime(seconds)}<span class="text-sm text-muted-foreground"
+				>.{formatTime(centis)}</span
+			>
+		</div>
 	</Card.Content>
-	<!-- <Card.Footer>
-	  <p>If you win now, you will have a time that's top #99999 in the world</p>
-	</Card.Footer> -->
 </Card.Root>
