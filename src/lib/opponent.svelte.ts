@@ -18,9 +18,9 @@ export type Difficulty = 'easy' | 'medium' | 'hard';
 // Difficulty is how fast the bots move — they always play with the same
 // (perfect) deduction skill. Each tier maps to a tick-delay range in ms.
 export const DIFFICULTY_DELAYS: Record<Difficulty, { minDelay: number; maxDelay: number }> = {
-	easy: { minDelay: 1200, maxDelay: 2000 },
-	medium: { minDelay: 600, maxDelay: 1200 },
-	hard: { minDelay: 250, maxDelay: 500 }
+	easy: { minDelay: 2000, maxDelay: 3500 },
+	medium: { minDelay: 1000, maxDelay: 2000 },
+	hard: { minDelay: 500, maxDelay: 900 }
 };
 
 // ...with one humanizing exception: easy bots occasionally misclick — they
