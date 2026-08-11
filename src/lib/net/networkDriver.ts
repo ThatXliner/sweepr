@@ -19,11 +19,10 @@ export type NetMsg =
 	// memberId. Slot indices are local to each client (slot 0 = self), so only
 	// memberIds have a shared meaning on the wire.
 	| { kind: 'placement'; from: string; byTarget: Record<string, Coord[]> }
-	// Tactical attack: the exact cell to inject, keyed by the victim's memberId
-	// (attacker-authoritative so every client injects at the same spot).
-	// `buried` lists victims whose boards had no room left for the mine —
-	// saturation is elimination in guessless Tactical.
-	| { kind: 'attack'; from: string; cells: Record<string, Coord>; buried?: string[] }
+	// Tactical attack hit: each listed target adds one shared hit to their own
+	// incoming charge. The target's client creates and broadcasts a mine only
+	// when its quarter-pool threshold is reached.
+	| { kind: 'attack'; from: string; targets: string[] }
 	// Tactical: the sender's CURRENT board layout — broadcast once after the
 	// initial build and again on every regen, so peers' mirrors stay exact even
 	// though each client's local bots mine the sender's board with local RNG.

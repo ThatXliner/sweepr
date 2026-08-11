@@ -18,6 +18,7 @@
 	import type { RealtimeChannel } from '@supabase/supabase-js';
 	import { makeNetworkDriver, broadcastMove, type Coord } from '$lib/net/networkDriver';
 	import { findGuesslessSeed, findSafeOpeningSeed, pickGuesslessInjection } from '$lib/solver';
+	import { advanceIncomingCharge, attackThresholdFor } from '$lib/tactical';
 
 	interface NetProps {
 		channel: RealtimeChannel;
@@ -79,6 +80,11 @@
 	let alive = $state<boolean[]>([]);
 	// How many boards each player has cleared — each fresh board gets harder.
 	let cleared = $state<number[]>([]);
+	// Hits from every attacker combine on the target. Once a target accumulates a
+	// quarter of the starting player pool in hits, one mine is added to its board.
+	// svelte-ignore state_referenced_locally
+	const attackThreshold = attackThresholdFor(players);
+	let incomingCharge = $state<number[]>(ids.map(() => 0));
 	let bots: OpponentDriver[] = [];
 
 	// Mines on a freshly-spawned board: the base placement budget plus one per
@@ -198,6 +204,7 @@
 		boards = games.map((g) => g.board);
 		alive = ids.map(() => true);
 		cleared = ids.map(() => 0);
+		incomingCharge = ids.map(() => 0);
 		if (net) {
 			// My real board includes mines my local bots dropped on me, which peers
 			// can't derive — broadcast the authoritative layout so their mirror of me
@@ -260,8 +267,8 @@
 				boards = [...boards];
 				checkPlayer(id);
 			},
-			// A bot's correct flag attacks everyone else, just like the human's.
-			onCorrectFlag: () => sendMineToOpponents(id)
+			// Every correct flag targets all other players with one shared hit.
+			onCorrectFlag: () => sendHitToOpponents(id)
 		});
 	}
 
@@ -325,71 +332,65 @@
 		bots[id]?.stop();
 	}
 
-	// A correct flag sends a mine to every other living player's board, dropped
-	// on a covered cell with no revealed neighbor so no visible number changes.
-	// Guessless: the attacker prefers a landing spot that keeps the victim's
-	// board solvable by logic; a victim with NO eligible spot at all is buried.
-	// Online, the attacker picks each cell and broadcasts it (keyed by the
-	// victim's memberId) so every client injects at the SAME spot.
-	function sendMineToOpponents(fromId: number) {
-		const cells: Record<string, Coord> = {};
-		const buriedPeers: string[] = [];
+	// One correct flag adds one hit to every living opponent. Local targets are
+	// updated here; online human targets receive the hit over the network and own
+	// their counter, mine placement, and resulting board broadcast.
+	function sendHitToOpponents(fromId: number) {
+		const remoteTargets: string[] = [];
 		for (const id of ids) {
 			if (id === fromId || !alive[id]) continue;
 			const peer = net?.peerForSlot?.[id] ?? null;
-			// Online, a local bot's attack must not touch a human peer's mirror —
-			// a mirror only changes through its owner's broadcasts or relayed
-			// attacker-authoritative cells, never local RNG.
+			// Bots are simulated per client, so their hits never directly mutate a
+			// remote human's mirror. That human owns the bots attacking their board.
 			if (net && fromId !== HUMAN && peer) continue;
-			let cell = pickGuesslessInjection(games[id]);
-			if (cell) games[id].injectMineAt(cell[0], cell[1]);
-			else cell = games[id].injectMine(); // no solvable spot — land anywhere eligible
-			if (cell) {
-				boards[id] = games[id].board;
-				if (net) {
-					if (peer)
-						cells[peer] = cell; // my attack on a live peer
-					else if (id === HUMAN) cells[net.memberId] = cell; // a local bot mined ME
-				}
-			} else {
-				// Board saturated: the mine has nowhere to land. Buried.
-				bury(id);
-				if (net) {
-					if (peer) buriedPeers.push(peer);
-					else if (id === HUMAN) buriedPeers.push(net.memberId);
-				}
-			}
+			if (peer) remoteTargets.push(peer);
+			else receiveAttackHit(id);
 		}
-		boards = [...boards];
-		evaluate();
-		if (net && (Object.keys(cells).length || buriedPeers.length)) {
-			broadcastMove(net.channel, {
-				kind: 'attack',
-				from: net.memberId,
-				cells,
-				buried: buriedPeers
-			});
+		if (net && remoteTargets.length) {
+			broadcastMove(net.channel, { kind: 'attack', from: net.memberId, targets: remoteTargets });
 		}
 	}
 
-	// Apply an attack a peer broadcast: inject at the exact cells the attacker
-	// chose, into whichever local board represents each victim (our own board if
-	// the victim is us, otherwise our mirror of that peer). Victims in `buried`
-	// had no room left — the attacker is authoritative about that too.
-	function applyAttack(cells: Record<string, Coord>, buried: string[] = []) {
-		if (!net) return;
-		for (const [memberId, [r, c]] of Object.entries(cells)) {
-			const id = memberId === net.memberId ? HUMAN : slotForPeer(memberId);
-			if (id < 0 || !alive[id] || !games[id]) continue;
-			games[id].injectMineAt(r, c);
+	function receiveAttackHit(id: number) {
+		if (!alive[id] || !games[id]) return;
+		const next = advanceIncomingCharge(incomingCharge[id], attackThreshold);
+		incomingCharge[id] = next.charge;
+		incomingCharge = [...incomingCharge];
+		if (!next.launch) return;
+
+		addAttackMine(id);
+	}
+
+	// A completed charge adds a mine on a covered cell with no revealed neighbor
+	// so no visible number changes.
+	// Guessless: the attacker prefers a landing spot that keeps the victim's
+	// board solvable by logic; a target with NO eligible spot at all is buried.
+	function addAttackMine(id: number) {
+		let cell = pickGuesslessInjection(games[id]);
+		if (cell) games[id].injectMineAt(cell[0], cell[1]);
+		else cell = games[id].injectMine(); // no solvable spot — land anywhere eligible
+		if (cell) {
 			boards[id] = games[id].board;
-		}
-		for (const memberId of buried) {
-			const id = memberId === net.memberId ? HUMAN : slotForPeer(memberId);
-			if (id >= 0) bury(id);
+			// A human owns their online board. Broadcast the full authoritative
+			// layout so every peer mirror sees the newly completed attack mine.
+			if (net && id === HUMAN) {
+				broadcastMove(net.channel, {
+					kind: 'newboard',
+					from: net.memberId,
+					mines: minesOf(games[id])
+				});
+			}
+		} else {
+			bury(id);
+			if (net && id === HUMAN) broadcastMove(net.channel, { kind: 'dead', from: net.memberId });
 		}
 		boards = [...boards];
 		evaluate();
+	}
+
+	// Only the targeted player's client advances an online incoming counter.
+	function applyRemoteAttack(targets: string[]) {
+		if (net && targets.includes(net.memberId)) receiveAttackHit(HUMAN);
 	}
 
 	function evaluate() {
@@ -467,10 +468,10 @@
 		boards[HUMAN] = games[HUMAN].flagCell(row, col);
 		boards = [...boards];
 		if (net) broadcastMove(net.channel, { kind: 'flag', from: net.memberId, r: row, c: col });
-		// Correctly flagging a mine (newly flagged, actually a mine) sends a mine
-		// to every opponent.
+		// A correct flag targets every opponent with one hit. Hits from different
+		// attackers share each target's quarter-pool charge.
 		if (!wasFlagged && cell.isFlagged && cell.isMine) {
-			sendMineToOpponents(HUMAN);
+			sendHitToOpponents(HUMAN);
 		}
 	}
 	function onCell(row: number, col: number) {
@@ -515,7 +516,7 @@
 					placementsReceived.add(payload.from);
 					maybeStartSweep();
 				} else if (payload.kind === 'attack') {
-					applyAttack(payload.cells, payload.buried);
+					applyRemoteAttack(payload.targets);
 				} else if (payload.kind === 'newboard' && !games.length) {
 					// A peer built (or regenerated) before we finished building — hold
 					// the layout and apply it at our own build time.
@@ -557,8 +558,9 @@
 				Left click reveals, right click flags. Hit a mine and you're eliminated.
 			</p>
 			<p>
-				<strong>Attack:</strong> correctly flag a mine and you send a hidden mine to every opponent's
-				board. Clear your whole board and you get a fresh, harder one.
+				<strong>Attack:</strong> each correct flag targets every opponent with one hit. Hits from
+				any players combine; every {attackThreshold} hits on your board become one hidden mine. Clear
+				your whole board and you get a fresh, harder one.
 			</p>
 			<p>
 				<strong>Guessless:</strong> your board always stays solvable by pure logic — attack mines
@@ -637,8 +639,8 @@
 			<p class="text-sm text-muted-foreground">
 				{invertControls
 					? 'Left-click flags, right-click reveals'
-					: 'Left-click reveals, right-click flags'} — correctly flagging a mine sends one to every opponent.
-				Last sweeper alive wins.
+					: 'Left-click reveals, right-click flags'} — every correct flag targets each opponent; every
+				{attackThreshold} combined hits become one mine. Last sweeper alive wins.
 			</p>
 		{/if}
 		{#snippet miniBoard(id: number)}
@@ -693,6 +695,21 @@
 						>
 					{/if}
 				</h3>
+				<div class="flex items-center gap-2 text-xs font-semibold text-muted-foreground">
+					<span>Incoming</span>
+					<div
+						class="flex gap-1"
+						aria-label="Incoming attack charge {incomingCharge[HUMAN]} of {attackThreshold}"
+					>
+						{#each [...Array(attackThreshold).keys()] as i (i)}
+							<span
+								class="h-2 w-5 rounded-full {i < incomingCharge[HUMAN] ? 'bg-red-600' : 'bg-muted'}"
+								aria-hidden="true"
+							></span>
+						{/each}
+					</div>
+					<span class="tabular-nums">{incomingCharge[HUMAN]}/{attackThreshold}</span>
+				</div>
 				<Board_
 					board={boards[HUMAN]}
 					interactive={phase === 'sweeping' && alive[HUMAN]}
