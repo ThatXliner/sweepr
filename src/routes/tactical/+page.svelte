@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import { page } from '$app/state';
 	import TacticalGame from '$lib/components/TacticalGame.svelte';
 	import SweeperLoader from '$lib/components/SweeperLoader.svelte';
@@ -11,6 +12,12 @@
 	let roomCode = $state('');
 	let joinCode = $state('');
 	let playerCount = $derived(privateRoom ? 2 : PLAYERS);
+
+	// Server-rendered buttons wait for their handlers to load before accepting clicks.
+	let ready = $state(false);
+	onMount(() => {
+		ready = true;
+	});
 
 	type View = 'menu' | 'searching' | 'online' | 'bots';
 	let view = $state<View>('menu');
@@ -91,6 +98,7 @@
 					{errorMessage}
 				</p>{/if}
 			<button
+				disabled={!ready}
 				onclick={findMatch}
 				class="block origin-left rounded-lg bg-red-600 px-6 py-5 text-left text-white shadow-lg transition-transform duration-100 hover:scale-105 hover:bg-red-700 focus-visible:scale-105 focus-visible:ring-4 focus-visible:ring-red-400 focus-visible:outline-none"
 			>
@@ -100,6 +108,7 @@
 				>
 			</button>
 			<button
+				disabled={!ready}
 				onclick={() => {
 					privateRoom = false;
 					view = 'bots';
@@ -114,6 +123,7 @@
 			<div class="rounded-lg border p-4">
 				<h2 class="mb-3 text-xl font-black text-red-600 dark:text-red-400">Private 1v1 duel</h2>
 				<button
+					disabled={!ready}
 					onclick={() => openRoom(true)}
 					class="w-full rounded-md bg-red-600 px-4 py-3 font-bold text-white hover:bg-red-700 focus-visible:ring-2 focus-visible:ring-ring"
 					>Create room</button
@@ -136,6 +146,7 @@
 						placeholder="8-character code"
 					/>
 					<button
+						disabled={!ready}
 						type="submit"
 						class="rounded-md border px-4 py-2 font-bold hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring"
 						>Join room</button
@@ -166,6 +177,7 @@
 			</p>
 		</div>
 		<button
+			disabled={!ready}
 			onclick={cancelSearch}
 			class="rounded-md border px-4 py-2 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
 		>

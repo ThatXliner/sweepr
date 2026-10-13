@@ -66,7 +66,8 @@ that server and binds it to `127.0.0.1:3017` (override with `SWEEPR_PORT`).
 On the server, configure `.env` with `PUBLIC_SUPABASE_URL`,
 `PUBLIC_SUPABASE_ANON_KEY`, and `ORIGIN` (the public web URL). Run
 `docker compose -f compose.production.yml up -d --build`. Put the app behind the
-existing HTTPS tunnel, and enable anonymous users in the Supabase Auth service.
+existing HTTPS tunnel. In self-hosted Supabase Auth, set `ENABLE_ANONYMOUS_USERS=true`
+and `DISABLE_SIGNUP=false`; both settings are required for anonymous players to join.
 
 To verify the actual deployment without starting a local preview server:
 

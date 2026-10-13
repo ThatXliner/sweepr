@@ -1,9 +1,16 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import { page } from '$app/state';
 	import BlitzGame from '$lib/components/BlitzGame.svelte';
 	import SweeperLoader from '$lib/components/SweeperLoader.svelte';
 	import { createMatchmaker } from '$lib/net/matchmaker.svelte';
 	import type { MatchResult } from '$lib/net/matchmaker.svelte';
+
+	// Server-rendered buttons wait for their handlers to load before accepting clicks.
+	let ready = $state(false);
+	onMount(() => {
+		ready = true;
+	});
 
 	type View = 'menu' | 'searching' | 'online' | 'bots';
 	let view = $state<View>('menu');
@@ -57,6 +64,7 @@
 		</header>
 		<div class="flex w-full max-w-md flex-col gap-4">
 			<button
+				disabled={!ready}
 				onclick={findMatch}
 				class="block origin-left rounded-lg bg-yellow-500 px-6 py-5 text-left text-white shadow-lg transition-transform duration-100 hover:scale-105 hover:bg-yellow-600 focus-visible:scale-105 focus-visible:ring-4 focus-visible:ring-yellow-300 focus-visible:outline-none"
 			>
@@ -64,6 +72,7 @@
 				<span class="mt-1 block text-sm italic opacity-90">1v1 against a live sweeper</span>
 			</button>
 			<button
+				disabled={!ready}
 				onclick={() => (view = 'bots')}
 				class="rounded-lg border px-6 py-3 text-left transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
 			>
@@ -84,6 +93,7 @@
 			</p>
 		</div>
 		<button
+			disabled={!ready}
 			onclick={cancelSearch}
 			class="rounded-md border px-4 py-2 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
 		>

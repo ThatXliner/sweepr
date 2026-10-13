@@ -12,6 +12,9 @@ test.beforeAll(async ({ request }) => {
 		.catch(() => null);
 	if (process.env.PLAYWRIGHT_BASE_URL) {
 		expect(up?.ok(), 'deployed Supabase must be reachable for live verification').toBe(true);
+		const settings = await up!.json();
+		expect(settings.disable_signup, 'signup must allow anonymous players').toBe(false);
+		expect(settings.external?.anonymous_users, 'anonymous sign-in must be enabled').toBe(true);
 	} else {
 		test.skip(!up || !up.ok(), 'Supabase not running or public key missing');
 	}
