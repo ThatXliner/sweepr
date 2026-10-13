@@ -4,17 +4,16 @@
 
 export type Mode = 'blitz' | 'tactical';
 
-// Target player counts per mode. Tactical is a 16-player arena; bots fill any
-// slots not taken by humans.
+// Tactical fills a 16-player arena; private rooms pair two humans.
 export const MATCH_SIZE: Record<Mode, number> = { blitz: 2, tactical: 16 };
-// Below this many humans we still need to wait (Blitz needs both; Tactical can
-// start with a partial human roster and bot-fill the rest).
+// Never start an online match with a missing opponent.
 export const MIN_HUMANS: Record<Mode, number> = { blitz: 2, tactical: 2 };
 
 export interface Member {
 	memberId: string;
 	userId: string;
 	joinedAt: number;
+	host?: boolean;
 }
 
 export interface MatchProposal {
@@ -93,4 +92,25 @@ export function onMatchMessage(
 /** This client's slot index within an accepted match. */
 export function slotOf(proposal: MatchProposal, me: string): number {
 	return proposal.members.indexOf(me);
+}
+
+export function normalizeRoomCode(value: string): string | null {
+	const code = value.trim().toUpperCase();
+	return /^[A-Z2-9]{8}$/.test(code) ? code : null;
+}
+
+export function makeRoomCode(): string {
+	const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+	return Array.from(
+		crypto.getRandomValues(new Uint8Array(8)),
+		(n) => alphabet[n % alphabet.length]
+	).join('');
+}
+
+/** Only the room creator pairs with the earliest guest; strangers stay queued. */
+export function privateRoomMembers(me: string, members: Member[]): string[] | null {
+	const queue = waitingQueue(members);
+	const host = queue.find((member) => member.host);
+	const guest = queue.find((member) => !member.host);
+	return host?.memberId === me && guest ? [me, guest.memberId] : null;
 }

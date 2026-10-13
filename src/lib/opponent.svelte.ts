@@ -50,6 +50,7 @@ export interface BotOptions {
 	// to be fully solvable from its chosen opening — the same guarantee humans
 	// get. On such boards the bot is a perfect solver and never guesses.
 	guessless?: boolean;
+	isComplete?: () => boolean;
 	// Chance per move that the bot misclicks (reveals a random covered cell
 	// instead of its deduced move). The easy tier's beatable-bot lever.
 	misclickChance?: number;
@@ -108,6 +109,7 @@ function pick<T>(arr: T[]): T | undefined {
  * the `onChange` callback (which fires after every move).
  */
 export function makeSweepBot(game: Game, opts: BotOptions): OpponentDriver {
+	const complete = opts.isComplete ?? (() => game.checkWin());
 	const minDelay = opts.minDelay ?? 600;
 	const maxDelay = opts.maxDelay ?? 1200;
 	let timer: ReturnType<typeof setTimeout> | undefined;
@@ -115,7 +117,7 @@ export function makeSweepBot(game: Game, opts: BotOptions): OpponentDriver {
 
 	function step() {
 		if (stopped) return;
-		if (game.checkLose() || game.checkWin()) return;
+		if (game.checkLose() || complete()) return;
 
 		if (opts.guessless && game.isFirstClick) {
 			// Same first-click guarantee the human gets: pick an opening, re-deal
@@ -132,7 +134,7 @@ export function makeSweepBot(game: Game, opts: BotOptions): OpponentDriver {
 			}
 			game.revealCell(r, c);
 			opts.onChange();
-			if (!game.checkLose() && !game.checkWin()) schedule();
+			if (!game.checkLose() && !complete()) schedule();
 			return;
 		}
 
@@ -142,7 +144,7 @@ export function makeSweepBot(game: Game, opts: BotOptions): OpponentDriver {
 			if (target) {
 				game.revealCell(target[0], target[1]);
 				opts.onChange();
-				if (!game.checkLose() && !game.checkWin()) schedule();
+				if (!game.checkLose() && !complete()) schedule();
 				return;
 			}
 		}
@@ -168,7 +170,7 @@ export function makeSweepBot(game: Game, opts: BotOptions): OpponentDriver {
 		}
 
 		opts.onChange();
-		if (game.checkLose() || game.checkWin()) return;
+		if (game.checkLose() || complete()) return;
 		schedule();
 	}
 

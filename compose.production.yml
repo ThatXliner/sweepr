@@ -1,0 +1,12 @@
+services:
+  web:
+    build:
+      context: .
+      args:
+        PUBLIC_SUPABASE_URL: ${PUBLIC_SUPABASE_URL:?Set PUBLIC_SUPABASE_URL}
+        PUBLIC_SUPABASE_ANON_KEY: ${PUBLIC_SUPABASE_ANON_KEY:?Set PUBLIC_SUPABASE_ANON_KEY}
+    ports:
+      - '127.0.0.1:${SWEEPR_PORT:-3017}:3000'
+    environment:
+      ORIGIN: ${ORIGIN:?Set the public application origin}
+    restart: unless-stopped

@@ -1,6 +1,12 @@
 import { describe, it, expect, vi } from 'vitest';
 import { Game } from '$lib/gameLogic.svelte';
-import { makeNetworkDriver, broadcastMove, MOVE_EVENT, type NetMsg } from './networkDriver';
+import {
+	makeNetworkDriver,
+	broadcastMove,
+	MOVE_EVENT,
+	type NetMsg,
+	isNetMsg
+} from './networkDriver';
 
 // A minimal fake of the Realtime channel: records the registered broadcast
 // handler so tests can feed it messages, and captures `send` payloads.
@@ -86,4 +92,33 @@ describe('networkDriver', () => {
 	it('MOVE_EVENT is the broadcast event name', () => {
 		expect(MOVE_EVENT).toBe('move');
 	});
+});
+
+it('mirrors an incoming mine without wiping reveals or flags', () => {
+	const owner = Game.fromMines(5, 5, [[0, 1]]);
+	const mirror = Game.fromMines(5, 5, [[0, 1]]);
+	const channel = fakeChannel();
+	makeNetworkDriver(mirror, channel as never, 'owner', { onChange: () => {} }).start();
+	owner.revealCell(0, 0);
+	channel.emit({ kind: 'reveal', from: 'owner', r: 0, c: 0 });
+	owner.flagCell(0, 1);
+	channel.emit({ kind: 'flag', from: 'owner', r: 0, c: 1 });
+	owner.injectMineAt(4, 4);
+	channel.emit({ kind: 'mine', from: 'owner', r: 4, c: 4 });
+	expect(mirror.board).toEqual(owner.board);
+	expect(mirror.mines).toBe(2);
+	expect(mirror.flags).toBe(owner.flags);
+});
+
+it('rejects malformed broadcast payloads before board mutation', () => {
+	for (const payload of [
+		null,
+		{},
+		{ kind: 'flag', from: 'p', r: -1, c: 0 },
+		{ kind: 'newboard', from: 'p', mines: [null] },
+		{ kind: 'placement', from: 'p', byTarget: { me: [[1.5, 0]] } }
+	]) {
+		expect(isNetMsg(payload)).toBe(false);
+	}
+	expect(isNetMsg({ kind: 'mine', from: 'p', r: 1, c: 1 })).toBe(true);
 });

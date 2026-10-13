@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { resolve } from '$app/paths';
 	import { Game, type Board } from '$lib/gameLogic.svelte';
 	import {
 		makeTacticalBot,
@@ -16,9 +17,9 @@
 	import Label from '$lib/components/ui/label/label.svelte';
 	import Switch from '$lib/components/ui/switch/switch.svelte';
 	import type { RealtimeChannel } from '@supabase/supabase-js';
-	import { makeNetworkDriver, broadcastMove, type Coord } from '$lib/net/networkDriver';
-	import { findGuesslessSeed, findSafeOpeningSeed, pickGuesslessInjection } from '$lib/solver';
-	import { advanceIncomingCharge, attackThresholdFor } from '$lib/tactical';
+	import { makeNetworkDriver, broadcastMove, type Coord, isNetMsg } from '$lib/net/networkDriver';
+	import { findGuesslessSeed, findSafeOpeningSeed } from '$lib/solver';
+	import { advanceIncomingCharge, attackThresholdFor, receiveMine } from '$lib/tactical';
 
 	interface NetProps {
 		channel: RealtimeChannel;
@@ -37,13 +38,12 @@
 		net?: NetProps;
 	}
 
-	// Config is fixed for the match (the page never re-passes props). Tactical is
-	// a 16-player arena (tetr.io-style): you in the centre, everyone else on the
-	// flanks. Bots fill any slots not taken by humans.
+	// Config is fixed for the match; slot 0 is always the local player.
 	let { players = 16, rows = 9, cols = 9, budget = 10, net }: Props = $props();
 
 	type Phase = 'placing' | 'sweeping' | 'done';
 	let phase = $state<Phase>('placing');
+	let opponentLeft = $state(false);
 	// Bot speed tier, chosen before the match in the placing phase.
 	let difficulty = $state<Difficulty>('medium');
 
@@ -86,6 +86,10 @@
 	const attackThreshold = attackThresholdFor(players);
 	let incomingCharge = $state<number[]>(ids.map(() => 0));
 	let bots: OpponentDriver[] = [];
+	// Attack deduplication is internal state, never rendered.
+	// eslint-disable-next-line svelte/prefer-svelte-reactivity
+	const attackedCells = new Map<number, Set<string>>();
+	let attackNotice = $state('');
 
 	// Mines on a freshly-spawned board: the base placement budget plus one per
 	// board already cleared, so survivors face escalating difficulty.
@@ -124,7 +128,7 @@
 	function botsPlace() {
 		// Each bot spends its budget across everyone but itself.
 		for (const placer of ids) {
-			if (placer === HUMAN) continue;
+			if (placer === HUMAN || net?.peerForSlot?.[placer]) continue;
 			const targets = ids.filter((id) => id !== placer);
 			let remaining = budget;
 			// Spread roughly evenly over targets.
@@ -251,6 +255,9 @@
 					alive = [...alive];
 					evaluate();
 				},
+				onMine: (r, c) => {
+					games[id].injectMineAt(r, c);
+				},
 				onNewBoard: (mines) => {
 					games[id] = Game.fromMines(rows, cols, mines);
 					boards[id] = games[id].board;
@@ -261,6 +268,7 @@
 		return makeTacticalBot(games[id], {
 			...botSpeed(id),
 			guessless: true,
+			isComplete: () => games[id].checkTacticalClear(),
 			misclickChance: DIFFICULTY_MISCLICK[difficulty],
 			onChange: () => {
 				boards[id] = games[id].board;
@@ -292,7 +300,7 @@
 				alive = [...alive];
 				bots[id]?.stop();
 			}
-		} else if (games[id].checkWin()) {
+		} else if (games[id].checkTacticalClear()) {
 			cleared[id]++;
 			cleared = [...cleared];
 			// A network peer rebuilds its own board and broadcasts `newboard`; we
@@ -304,7 +312,8 @@
 
 	// Replace a player's cleared board with a new, denser one.
 	function regenerateBoard(id: number) {
-		const fresh = new Game(rows, cols, mineCountFor(cleared[id]));
+		const fresh = new Game(rows, cols, Math.min(rows * cols - 1, mineCountFor(cleared[id])));
+		attackedCells.delete(id);
 		games[id] = fresh;
 		boards[id] = fresh.board;
 		boards = [...boards];
@@ -352,7 +361,7 @@
 	}
 
 	function receiveAttackHit(id: number) {
-		if (!alive[id] || !games[id]) return;
+		if (phase !== 'sweeping' || !alive[id] || !games[id]) return;
 		const next = advanceIncomingCharge(incomingCharge[id], attackThreshold);
 		incomingCharge[id] = next.charge;
 		incomingCharge = [...incomingCharge];
@@ -363,26 +372,26 @@
 
 	// A completed charge adds a mine on a covered cell with no revealed neighbor
 	// so no visible number changes.
-	// Guessless: the attacker prefers a landing spot that keeps the victim's
-	// board solvable by logic; a target with NO eligible spot at all is buried.
+	// Only a fully mined remainder is lethal when an attack cannot land.
 	function addAttackMine(id: number) {
-		let cell = pickGuesslessInjection(games[id]);
-		if (cell) games[id].injectMineAt(cell[0], cell[1]);
-		else cell = games[id].injectMine(); // no solvable spot — land anywhere eligible
-		if (cell) {
+		const attack = receiveMine(games[id]);
+		if (attack.kind === 'mine') {
 			boards[id] = games[id].board;
-			// A human owns their online board. Broadcast the full authoritative
-			// layout so every peer mirror sees the newly completed attack mine.
+			if (id === HUMAN) attackNotice = 'Incoming mine — total mine count increased.';
 			if (net && id === HUMAN) {
 				broadcastMove(net.channel, {
-					kind: 'newboard',
+					kind: 'mine',
 					from: net.memberId,
-					mines: minesOf(games[id])
+					r: attack.cell[0],
+					c: attack.cell[1]
 				});
 			}
-		} else {
+		} else if (attack.kind === 'buried') {
 			bury(id);
+			if (id === HUMAN) attackNotice = 'Buried — every covered square was already a mine.';
 			if (net && id === HUMAN) broadcastMove(net.channel, { kind: 'dead', from: net.memberId });
+		} else if (id === HUMAN) {
+			attackNotice = 'Attack blocked — your revealed numbers are protected.';
 		}
 		boards = [...boards];
 		evaluate();
@@ -460,9 +469,9 @@
 	}
 	function flag(row: number, col: number) {
 		if (phase !== 'sweeping' || !alive[HUMAN] || !games.length) return;
-		// No flagging before the first reveal: the board re-deals at first click,
-		// so pre-click flags (and blind attack-fishing) would be meaningless.
-		if (games[HUMAN].isFirstClick) return;
+		// Opening re-deals the board; a saturated board has no safe opening, so
+		// allow its owner to escape by flagging the entire remainder.
+		if (games[HUMAN].isFirstClick && !games[HUMAN].isSaturated()) return;
 		const cell = games[HUMAN].board[row][col];
 		const wasFlagged = cell.isFlagged;
 		boards[HUMAN] = games[HUMAN].flagCell(row, col);
@@ -470,9 +479,15 @@
 		if (net) broadcastMove(net.channel, { kind: 'flag', from: net.memberId, r: row, c: col });
 		// A correct flag targets every opponent with one hit. Hits from different
 		// attackers share each target's quarter-pool charge.
-		if (!wasFlagged && cell.isFlagged && cell.isMine) {
+		const key = `${row},${col}`;
+		// eslint-disable-next-line svelte/prefer-svelte-reactivity
+		const sent = attackedCells.get(HUMAN) ?? new Set<string>();
+		if (!wasFlagged && cell.isFlagged && cell.isMine && !sent.has(key)) {
+			sent.add(key);
+			attackedCells.set(HUMAN, sent);
 			sendHitToOpponents(HUMAN);
 		}
+		checkPlayer(HUMAN);
 	}
 	function onCell(row: number, col: number) {
 		if (invertControls) flag(row, col);
@@ -492,20 +507,30 @@
 	$effect(() => {
 		if (net) {
 			net.channel.on('broadcast', { event: 'move' }, ({ payload }) => {
-				if (payload.from === net.memberId) return;
+				if (!isNetMsg(payload) || phase === 'done' || slotForPeer(payload.from) <= 0) return;
+				if (payload.kind === 'placement' && placementsReceived.has(payload.from)) return;
 				if (payload.kind === 'placement') {
 					// Consume only the mines addressed to ME — entries for other peers
 					// are theirs to apply; their boards reach us via their `newboard`
 					// layout broadcast.
 					const mine = payload.byTarget[net.memberId];
-					if (mine) {
+					if (Array.isArray(mine)) {
 						// Two peers can drop on the same cell; dedupe so the board's
 						// mine/flag counters stay honest.
 						const list = placements.get(HUMAN)!;
 						// Transient dedup lookup; reactivity comes from `placements`.
 						// eslint-disable-next-line svelte/prefer-svelte-reactivity
 						const have = new Set(list.map(([r, c]) => `${r},${c}`));
-						for (const [r, c] of mine) {
+						for (const [r, c] of mine.slice(0, budget)) {
+							if (
+								!Number.isInteger(r) ||
+								!Number.isInteger(c) ||
+								r < 0 ||
+								c < 0 ||
+								r >= rows ||
+								c >= cols
+							)
+								continue;
 							if (!have.has(`${r},${c}`)) {
 								have.add(`${r},${c}`);
 								list.push([r, c]);
@@ -527,6 +552,10 @@
 				const left = leftPresences as Array<{ memberId?: string }>;
 				for (const p of left) {
 					const slot = p.memberId ? slotForPeer(p.memberId) : -1;
+					if (slot > 0 && !games.length) {
+						opponentLeft = true;
+						phase = 'done';
+					}
 					if (slot >= 0 && alive[slot]) {
 						alive[slot] = false;
 						alive = [...alive];
@@ -546,9 +575,12 @@
 <div class="flex flex-col items-center gap-4 p-3">
 	<div class="flex items-center gap-2">
 		<span class="h-3 w-3 rounded-full bg-red-600" aria-hidden="true"></span>
-		<h2 class="text-lg font-semibold">Tactical</h2>
+		<h2 class="text-lg font-semibold">Tactical{players === 2 ? ' · 1v1' : ''}</h2>
 		<ModeInfo title="Tactical">
-			<p>A battle royale where you place mines on your opponents' boards, then everyone sweeps.</p>
+			<p>
+				{players === 2 ? 'A private 1v1 duel' : 'A battle royale'} where you place mines on your opponents'
+				boards, then everyone sweeps.
+			</p>
 			<p>
 				<strong>Placing:</strong> click opponent boards to drop your mines on them. Your own board gets
 				mined by everyone else.
@@ -559,34 +591,43 @@
 			</p>
 			<p>
 				<strong>Attack:</strong> each correct flag targets every opponent with one hit. Hits from
-				any players combine; every {attackThreshold} hits on your board become one hidden mine. Clear
-				your whole board and you get a fresh, harder one.
+				any players combine; every {attackThreshold} hits on your board become one hidden mine. Reveal
+				every safe square and flag every mine on your board and you get a fresh, harder one.
 			</p>
 			<p>
-				<strong>Guessless:</strong> your board always stays solvable by pure logic — attack mines
-				only land where deduction still wins. But they pile into the untouched part of your board,
-				and when an attack finds no room left, you're <strong>buried</strong> and out. Sweep fast.
+				<strong>Stay sharp:</strong> attacks never change revealed numbers, but hidden mines can force
+				a guess. If every covered square is already a mine, the next attack buries you. Use the total
+				mine count to recognize this and flag every remaining square to get a fresh board.
 			</p>
 			<p>
-				Last sweeper alive wins. {#if net}You're in a live 16-player match.{:else}Opponents are
-					bots.{/if}
+				Last sweeper alive wins. {#if net}You're in a live {players}-player match.{:else}Opponents
+					are bots.{/if}
 			</p>
 		</ModeInfo>
 	</div>
-	{#if phase === 'placing'}
+	{#if opponentLeft}
+		<h2 class="text-3xl font-black tracking-tight">Opponent left the match.</h2>
+		<a
+			href={resolve('/tactical')}
+			data-sveltekit-reload
+			class="rounded-md bg-red-600 px-6 py-3 font-bold text-white">Find another match</a
+		>
+	{:else if phase === 'placing'}
 		<h2 class="text-4xl font-black tracking-tight">Place your mines</h2>
-		<div class="flex items-center gap-2 text-sm">
-			<Label for="tactical-difficulty">Bot difficulty</Label>
-			<select
-				id="tactical-difficulty"
-				bind:value={difficulty}
-				class="rounded-md border bg-background px-2 py-1 capitalize focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-			>
-				{#each DIFFICULTIES as d (d)}
-					<option value={d} class="capitalize">{d}</option>
-				{/each}
-			</select>
-		</div>
+		{#if !net}
+			<div class="flex items-center gap-2 text-sm">
+				<Label for="tactical-difficulty">Bot difficulty</Label>
+				<select
+					id="tactical-difficulty"
+					bind:value={difficulty}
+					class="rounded-md border bg-background px-2 py-1 capitalize focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+				>
+					{#each DIFFICULTIES as d (d)}
+						<option value={d} class="capitalize">{d}</option>
+					{/each}
+				</select>
+			</div>
+		{/if}
 		<p class="text-sm text-muted-foreground">
 			Click opponent boards to drop mines on them. Mines left:
 			<span class="text-base font-black text-foreground tabular-nums">{minesLeft}</span>
@@ -652,7 +693,7 @@
 				<Board_
 					board={boards[id]}
 					interactive={false}
-					cellSize="h-2 w-2 overflow-hidden text-[7px] leading-none"
+					cellSize={players === 2 ? 'h-7 w-7' : 'h-2 w-2 overflow-hidden text-[7px] leading-none'}
 					unrevealedBg="bg-red-500/20"
 					label="Opponent {id}'s board"
 				/>
@@ -696,6 +737,8 @@
 					{/if}
 				</h3>
 				<div class="flex items-center gap-2 text-xs font-semibold text-muted-foreground">
+					<span data-testid="mine-count">Mines: {games[HUMAN].mines}</span>
+					<span>Flags left: {games[HUMAN].flags}</span>
 					<span>Incoming</span>
 					<div
 						class="flex gap-1"
@@ -718,6 +761,7 @@
 					cellSize="h-7 w-7"
 					label="Your board"
 				/>
+				<p role="status" class="text-sm text-muted-foreground">{attackNotice}</p>
 				<span class="text-sm text-muted-foreground">{alive[HUMAN] ? 'alive' : 'eliminated'}</span>
 			</div>
 

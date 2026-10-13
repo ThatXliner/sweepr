@@ -14,7 +14,7 @@
 		{
 			href: '/tactical',
 			name: 'Tactical',
-			tagline: 'An online battle royale where you place mines on their board!',
+			tagline: 'An online battle royale with private 1v1 mine duels!',
 			cls: 'bg-red-600 hover:bg-red-700 focus-visible:ring-red-400'
 		},
 		{

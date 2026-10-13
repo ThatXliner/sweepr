@@ -59,14 +59,13 @@ test('tactical: place a mine, ready, then sweep phase begins', async ({ page }) 
 	await expect(page.getByText('Place your mines')).toBeVisible();
 	await expect(page.getByText('Mines left:')).toContainText('10');
 
-	// Placing shows the 15 opponent boards (9x9 each). Drop one mine on the first.
+	// Placing shows one opponent board. Drop one mine.
 	await page.locator('button.h-7:not(.rounded-full)').first().click();
 	await expect(page.getByText('Mines left:')).toContainText('9');
 
 	await page.getByRole('button', { name: /Ready/ }).click();
 
-	// Sweep (tetr.io layout): one large board (yours, h-7 = 81 cells) centred, the
-	// 15 opponents rendered as tiny boards (h-2).
+	// The public arena preserves one large board and fifteen opponent previews.
 	await expect(page.locator('button.h-7:not(.rounded-full)')).toHaveCount(81);
 	await expect(page.locator('button.h-2')).toHaveCount(15 * 81);
 	await expect(page.getByText(/last sweeper alive wins|wins\./)).toBeVisible();
@@ -130,8 +129,7 @@ test('tactical: opponent boards are not clickable during the sweep', async ({ pa
 	for (let i = 0; i < 10; i++) await cells.nth(i).click();
 	await page.getByRole('button', { name: /Ready/ }).click();
 
-	// 16 boards total (1 large yours + 15 tiny opponents); exactly one (yours) is
-	// interactive, the other 15 carry pointer-events-none.
+	// Only your board is interactive during the duel.
 	await expect(page.locator('[role="grid"]')).toHaveCount(16);
 	await expect(page.locator('[role="grid"].pointer-events-none')).toHaveCount(15);
 });
@@ -163,3 +161,14 @@ for (const path of ['/blitz', '/tactical']) {
 		await expect(select).toHaveValue('hard');
 	});
 }
+
+test('tactical: private room menu validates codes and lets the host cancel', async ({ page }) => {
+	await page.goto('/tactical');
+	await page.getByLabel('Room code', { exact: true }).fill('BAD');
+	await page.getByRole('button', { name: 'Join room' }).click();
+	await expect(page.getByRole('alert')).toHaveText('Enter an 8-character room code.');
+	await page.getByRole('button', { name: 'Create room' }).click();
+	await expect(page.getByLabel('Private room code')).toHaveText(/^[A-Z2-9]{8}$/);
+	await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+	await expect(page.getByRole('heading', { name: 'Private 1v1 duel' })).toBeVisible();
+});

@@ -27,7 +27,7 @@ export class Game {
 	public isFirstClick = true;
 	public rows: number;
 	public cols: number;
-	public mines: number;
+	public mines: number = $state(0);
 	public flags: number = $state(0);
 
 	constructor(rows: number, cols: number, mines: number, seed?: number) {
@@ -46,11 +46,12 @@ export class Game {
 		const game = new Game(rows, cols, 0);
 		const board = game.board;
 		for (const [row, col] of mineCoords) {
-			board[row][col].isMine = true;
+			if (Number.isInteger(row) && Number.isInteger(col) && board[row]?.[col])
+				board[row][col].isMine = true;
 		}
 		game.computeAdjacency(board);
-		game.mines = mineCoords.length;
-		game.flags = mineCoords.length;
+		game.mines = board.flat().filter((cell) => cell.isMine).length;
+		game.flags = game.mines;
 		return game;
 	}
 	public getBoard(): Board {
@@ -58,7 +59,7 @@ export class Game {
 	}
 	public flagCell(row: number, col: number): Board {
 		const cell = this.board[row][col];
-		if (this.flags === 0) return this.board;
+		if (this.flags === 0 && !cell.isFlagged) return this.board;
 		if (!cell.isRevealed) {
 			this.flags += cell.isFlagged ? 1 : -1;
 			cell.isFlagged = !cell.isFlagged;
@@ -68,6 +69,20 @@ export class Game {
 
 	public checkWin(): boolean {
 		return this.board.every((row) => row.every((cell) => cell.isRevealed !== cell.isMine));
+	}
+
+	/** Tactical requires identifying the remaining mines before dealing again. */
+	public checkTacticalClear(): boolean {
+		return (
+			!this.checkLose() &&
+			this.board.every((row) =>
+				row.every((cell) => (cell.isMine ? cell.isFlagged : cell.isRevealed && !cell.isFlagged))
+			)
+		);
+	}
+
+	public isSaturated(): boolean {
+		return this.board.every((row) => row.every((cell) => cell.isRevealed || cell.isMine));
 	}
 
 	public checkLose(): boolean {
@@ -193,8 +208,17 @@ export class Game {
 	 * neighbors. Used so online clients all inject at the SAME coordinates (the
 	 * attacker picks the cell and broadcasts it) — random placement would desync.
 	 */
-	public injectMineAt(row: number, col: number): void {
-		this.board[row][col].isMine = true;
+	public injectMineAt(row: number, col: number): boolean {
+		const cell = this.board[row]?.[col];
+		if (
+			!cell ||
+			cell.isMine ||
+			cell.isRevealed ||
+			cell.isFlagged ||
+			this.hasRevealedNeighbor(row, col)
+		)
+			return false;
+		cell.isMine = true;
 		this.mines++;
 		this.flags++;
 		// Only the new mine's covered neighbors change; recompute them.
@@ -204,6 +228,7 @@ export class Game {
 				if (!c.isMine) c.adjacentMines++;
 			}
 		}
+		return true;
 	}
 
 	/**

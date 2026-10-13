@@ -23,12 +23,50 @@ export type NetMsg =
 	// incoming charge. The target's client creates and broadcasts a mine only
 	// when its quarter-pool threshold is reached.
 	| { kind: 'attack'; from: string; targets: string[] }
+	| { kind: 'mine'; from: string; r: number; c: number }
 	// Tactical: the sender's CURRENT board layout — broadcast once after the
 	// initial build and again on every regen, so peers' mirrors stay exact even
 	// though each client's local bots mine the sender's board with local RNG.
 	| { kind: 'newboard'; from: string; mines: Coord[] }
 	// Player hit a mine / was eliminated.
 	| { kind: 'dead'; from: string };
+
+/** Validate broadcast payloads before they reach board mutations. */
+export function isNetMsg(value: unknown): value is NetMsg {
+	if (!value || typeof value !== 'object') return false;
+	const msg = value as Record<string, unknown>;
+	if (typeof msg.from !== 'string' || !msg.from) return false;
+	const coord = (v: unknown): v is Coord =>
+		Array.isArray(v) && v.length === 2 && v.every((n) => Number.isInteger(n) && n >= 0);
+	const coords = (v: unknown) => Array.isArray(v) && v.length <= 1024 && v.every(coord);
+	switch (msg.kind) {
+		case 'reveal':
+		case 'flag':
+		case 'mine':
+			return coord([msg.r, msg.c]);
+		case 'dead':
+			return true;
+		case 'seed':
+			return Number.isInteger(msg.seed) && Number(msg.seed) >= 0;
+		case 'newboard':
+			return coords(msg.mines);
+		case 'attack':
+			return (
+				Array.isArray(msg.targets) &&
+				msg.targets.length <= 16 &&
+				msg.targets.every((id) => typeof id === 'string')
+			);
+		case 'placement':
+			return (
+				!!msg.byTarget &&
+				typeof msg.byTarget === 'object' &&
+				!Array.isArray(msg.byTarget) &&
+				Object.values(msg.byTarget).every(coords)
+			);
+		default:
+			return false;
+	}
+}
 
 export const MOVE_EVENT = 'move';
 
@@ -48,6 +86,7 @@ export interface NetworkDriverOptions {
 	onDead?: () => void;
 	// Tactical: peer rebuilt its board (regen on clear).
 	onNewBoard?: (mines: Coord[]) => void;
+	onMine?: (r: number, c: number) => void;
 }
 
 /**
@@ -68,14 +107,29 @@ export function makeNetworkDriver(
 	const flag = opts.onFlag ?? ((r: number, c: number) => game.flagCell(r, c));
 
 	function handler({ payload }: { payload: NetMsg }) {
-		if (stopped) return;
+		if (stopped || !isNetMsg(payload)) return;
 		if (payload.from !== peerMemberId) return;
 		switch (payload.kind) {
 			case 'reveal':
+				if (
+					!Number.isInteger(payload.r) ||
+					!Number.isInteger(payload.c) ||
+					!game.board[payload.r]?.[payload.c]
+				)
+					return;
 				reveal(payload.r, payload.c);
 				break;
 			case 'flag':
+				if (
+					!Number.isInteger(payload.r) ||
+					!Number.isInteger(payload.c) ||
+					!game.board[payload.r]?.[payload.c]
+				)
+					return;
 				flag(payload.r, payload.c);
+				break;
+			case 'mine':
+				(opts.onMine ?? ((r, c) => game.injectMineAt(r, c)))(payload.r, payload.c);
 				break;
 			case 'newboard':
 				opts.onNewBoard?.(payload.mines);

@@ -7,7 +7,10 @@ import {
 	onMatchMessage,
 	slotOf,
 	type Member,
-	type MatchProposal
+	type MatchProposal,
+	makeRoomCode,
+	normalizeRoomCode,
+	privateRoomMembers
 } from './matchmaker';
 
 const m = (id: string, joinedAt: number, userId = id): Member => ({
@@ -45,17 +48,12 @@ describe('shouldPropose', () => {
 		expect(shouldPropose('a', [m('a', 1)], 'blitz', false)).toBeNull();
 	});
 
-	it('tactical takes up to 16 when full', () => {
-		const members = Array.from({ length: 20 }, (_, i) => m(`p${String(i).padStart(2, '0')}`, i));
-		const chosen = shouldPropose(members[0].memberId, members, 'tactical', false);
-		expect(chosen).toHaveLength(16);
-		expect(chosen![0]).toBe('p00');
-	});
-
-	it('tactical starts partially-filled only after the short wait', () => {
+	it('tactical waits for the arena or a short wait before pairing partial rosters', () => {
 		const members = [m('a', 1), m('b', 2), m('c', 3)];
-		expect(shouldPropose('a', members, 'tactical', false)).toBeNull(); // < 16, no short wait
+		expect(shouldPropose('a', members, 'tactical', false)).toBeNull();
 		expect(shouldPropose('a', members, 'tactical', true)).toEqual(['a', 'b', 'c']);
+		const full = Array.from({ length: 20 }, (_, i) => m(`p${i}`, i));
+		expect(shouldPropose('p0', full, 'tactical', false)).toHaveLength(16);
 	});
 
 	it('tactical needs at least 2 humans even after the short wait', () => {
@@ -129,5 +127,26 @@ describe('seeds + slots', () => {
 		};
 		expect(slotOf(p, 'y')).toBe(1);
 		expect(slotOf(p, 'absent')).toBe(-1);
+	});
+});
+
+describe('private Tactical rooms', () => {
+	it('normalizes room codes and rejects malformed ones', () => {
+		expect(normalizeRoomCode(' abcd2345 ')).toBe('ABCD2345');
+		for (const code of ['', 'abc', 'ABCDEFG0', 'abcd-2345'])
+			expect(normalizeRoomCode(code)).toBeNull();
+		expect(normalizeRoomCode(makeRoomCode())).not.toBeNull();
+	});
+
+	it('only the host proposes, and chooses exactly one guest even if the guest arrived first', () => {
+		const members = [m('guest', 1), { ...m('host', 2), host: true }, m('extra', 3)];
+		expect(privateRoomMembers('host', members)).toEqual(['host', 'guest']);
+		expect(privateRoomMembers('guest', members)).toBeNull();
+		expect(privateRoomMembers('extra', members)).toBeNull();
+	});
+
+	it('never pairs two guests or starts a room without a guest', () => {
+		expect(privateRoomMembers('a', [m('a', 1), m('b', 2)])).toBeNull();
+		expect(privateRoomMembers('host', [{ ...m('host', 1), host: true }])).toBeNull();
 	});
 });
