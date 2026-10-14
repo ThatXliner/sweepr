@@ -11,6 +11,7 @@
 		type OpponentDriver
 	} from '$lib/opponent.svelte';
 	import Board_ from './Board.svelte';
+	import TacticalAttackEffects from './TacticalAttackEffects.svelte';
 	import ModeInfo from './ModeInfo.svelte';
 	import SweeperLoader from './SweeperLoader.svelte';
 	import Time from './Time.svelte';
@@ -90,6 +91,14 @@
 	// eslint-disable-next-line svelte/prefer-svelte-reactivity
 	const attackedCells = new Map<number, Set<string>>();
 	let attackNotice = $state('');
+	let sentAttacks = $state(0);
+	let receivedMines = $state(0);
+	let arenaElement = $state<HTMLDivElement>();
+	let attackEffects: { launch: (from: Element | null, to: Element | null) => void } | undefined;
+
+	function attackTarget(id: number): Element | null {
+		return arenaElement?.querySelector(`[data-attack-target="${id}"]`) ?? null;
+	}
 
 	// Mines on a freshly-spawned board: the base placement budget plus one per
 	// board already cleared, so survivors face escalating difficulty.
@@ -344,7 +353,8 @@
 	// One correct flag adds one hit to every living opponent. Local targets are
 	// updated here; online human targets receive the hit over the network and own
 	// their counter, mine placement, and resulting board broadcast.
-	function sendHitToOpponents(fromId: number) {
+	function sendHitToOpponents(fromId: number, source: Element | null = attackTarget(fromId)) {
+		if (fromId === HUMAN) sentAttacks++;
 		const remoteTargets: string[] = [];
 		for (const id of ids) {
 			if (id === fromId || !alive[id]) continue;
@@ -352,16 +362,18 @@
 			// Bots are simulated per client, so their hits never directly mutate a
 			// remote human's mirror. That human owns the bots attacking their board.
 			if (net && fromId !== HUMAN && peer) continue;
+			if (fromId === HUMAN) attackEffects?.launch(source, attackTarget(id));
 			if (peer) remoteTargets.push(peer);
-			else receiveAttackHit(id);
+			else receiveAttackHit(id, fromId);
 		}
 		if (net && remoteTargets.length) {
 			broadcastMove(net.channel, { kind: 'attack', from: net.memberId, targets: remoteTargets });
 		}
 	}
 
-	function receiveAttackHit(id: number) {
+	function receiveAttackHit(id: number, fromId: number) {
 		if (phase !== 'sweeping' || !alive[id] || !games[id]) return;
+		if (id === HUMAN) attackEffects?.launch(attackTarget(fromId), attackTarget(HUMAN));
 		const next = advanceIncomingCharge(incomingCharge[id], attackThreshold);
 		incomingCharge[id] = next.charge;
 		incomingCharge = [...incomingCharge];
@@ -377,7 +389,10 @@
 		const attack = receiveMine(games[id]);
 		if (attack.kind === 'mine') {
 			boards[id] = games[id].board;
-			if (id === HUMAN) attackNotice = 'Incoming mine — total mine count increased.';
+			if (id === HUMAN) {
+				receivedMines++;
+				attackNotice = 'Incoming mine — total mine count increased.';
+			}
 			if (net && id === HUMAN) {
 				broadcastMove(net.channel, {
 					kind: 'mine',
@@ -398,8 +413,8 @@
 	}
 
 	// Only the targeted player's client advances an online incoming counter.
-	function applyRemoteAttack(targets: string[]) {
-		if (net && targets.includes(net.memberId)) receiveAttackHit(HUMAN);
+	function applyRemoteAttack(targets: string[], fromId: number) {
+		if (net && targets.includes(net.memberId)) receiveAttackHit(HUMAN, fromId);
 	}
 
 	function evaluate() {
@@ -485,7 +500,12 @@
 		if (!wasFlagged && cell.isFlagged && cell.isMine && !sent.has(key)) {
 			sent.add(key);
 			attackedCells.set(HUMAN, sent);
-			sendHitToOpponents(HUMAN);
+			sendHitToOpponents(
+				HUMAN,
+				arenaElement?.querySelector(
+					`[data-player-panel="0"] button[data-row="${row}"][data-col="${col}"]`
+				) ?? attackTarget(HUMAN)
+			);
 		}
 		checkPlayer(HUMAN);
 	}
@@ -541,7 +561,7 @@
 					placementsReceived.add(payload.from);
 					maybeStartSweep();
 				} else if (payload.kind === 'attack') {
-					applyRemoteAttack(payload.targets);
+					applyRemoteAttack(payload.targets, slotForPeer(payload.from));
 				} else if (payload.kind === 'newboard' && !games.length) {
 					// A peer built (or regenerated) before we finished building — hold
 					// the layout and apply it at our own build time.
@@ -572,7 +592,8 @@
 	});
 </script>
 
-<div class="flex flex-col items-center gap-4 p-3">
+<TacticalAttackEffects bind:this={attackEffects} />
+<div bind:this={arenaElement} class="flex flex-col items-center gap-4 p-3">
 	<div class="flex items-center gap-2">
 		<span class="h-3 w-3 rounded-full bg-red-600" aria-hidden="true"></span>
 		<h2 class="text-lg font-semibold">Tactical{players === 2 ? ' · 1v1' : ''}</h2>
@@ -686,6 +707,7 @@
 		{/if}
 		{#snippet miniBoard(id: number)}
 			<div
+				data-player-panel={id}
 				class="relative flex flex-col items-center gap-0.5"
 				class:opacity-40={!alive[id]}
 				title="Opponent {id} — {clearedCount(boards[id])} cleared{alive[id] ? '' : ' (eliminated)'}"
@@ -698,7 +720,8 @@
 					label="Opponent {id}'s board"
 				/>
 				<span
-					class="font-mono text-[10px] leading-tight font-semibold {alive[id]
+					data-attack-target={id}
+					class="rounded-md px-2 py-1 font-mono text-[10px] leading-tight font-semibold {alive[id]
 						? 'text-muted-foreground'
 						: 'text-red-600 dark:text-red-400'}"
 				>
@@ -718,13 +741,18 @@
 		<div
 			class="flex w-full flex-col items-center gap-6 md:flex-row md:items-start md:justify-center"
 		>
-			<div class="order-2 grid grid-cols-4 content-start gap-2 md:order-1">
+			<div
+				class="order-2 grid {players === 2
+					? 'grid-cols-1'
+					: 'grid-cols-4'} content-start gap-2 md:order-1"
+			>
 				{#each leftFlank as id (id)}
 					{@render miniBoard(id)}
 				{/each}
 			</div>
 
 			<div
+				data-player-panel={HUMAN}
 				class="order-1 flex shrink-0 flex-col items-center gap-1.5 md:order-2 md:px-4"
 				class:opacity-50={!alive[HUMAN]}
 			>
@@ -737,7 +765,12 @@
 					{/if}
 				</h3>
 				<div class="flex items-center gap-2 text-xs font-semibold text-muted-foreground">
-					<span data-testid="mine-count">Mines: {games[HUMAN].mines}</span>
+					<span
+						data-attack-target={HUMAN}
+						data-testid="mine-count"
+						class="rounded-md border border-red-500/30 bg-red-500/10 px-2 py-1 text-red-700 dark:text-red-300"
+						>Mines: {games[HUMAN].mines}</span
+					>
 					<span>Flags left: {games[HUMAN].flags}</span>
 					<span>Incoming</span>
 					<div
@@ -761,6 +794,15 @@
 					cellSize="h-7 w-7"
 					label="Your board"
 				/>
+				<div class="flex gap-3 font-mono text-xs font-bold tabular-nums">
+					<span class="rounded-md bg-red-600 px-2.5 py-1 text-white" data-testid="attack-sent"
+						>↗ Sent {sentAttacks}</span
+					>
+					<span
+						class="rounded-md border border-red-500/30 px-2.5 py-1 text-red-700 dark:text-red-300"
+						data-testid="attack-received">↙ Received {receivedMines}</span
+					>
+				</div>
 				<p role="status" class="text-sm text-muted-foreground">{attackNotice}</p>
 				<span class="text-sm text-muted-foreground">{alive[HUMAN] ? 'alive' : 'eliminated'}</span>
 			</div>

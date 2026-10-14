@@ -56,11 +56,27 @@ test('blitz: two players are matched and see each other live', async ({ browser 
 // abrupt tab close — too slow/flaky to assert in e2e. The presence-leave forfeit
 // path is wired in BlitzGame; it's exercised manually rather than here.
 
-test('tactical: two humans duel, send mines, and preserve the live mirror', async ({ browser }) => {
+test('tactical: two humans duel, send mines, and preserve the live mirror', async ({
+	browser
+}, testInfo) => {
 	const a = await browser.newContext();
-	const b = await browser.newContext();
+	const b = await browser.newContext({ reducedMotion: 'reduce' });
 	const pa = await a.newPage();
 	const pb = await b.newPage();
+	async function captureFlight(fileName: string) {
+		const projectile = pa.getByTestId('attack-projectile');
+		await expect(projectile).toBeVisible();
+		await projectile.evaluate((element) =>
+			element.getAnimations().forEach((animation) => {
+				animation.pause();
+				animation.currentTime = 240;
+			})
+		);
+		await pa.screenshot({ path: testInfo.outputPath(fileName), fullPage: true });
+		await projectile.evaluate((element) =>
+			element.getAnimations().forEach((animation) => animation.play())
+		);
+	}
 	let aMines: number[][] = [];
 	pa.on('websocket', (socket) => {
 		socket.on('framesent', ({ payload }) => {
@@ -99,6 +115,8 @@ test('tactical: two humans duel, send mines, and preserve the live mirror', asyn
 		await expect(p.getByText('Place your mines')).toBeVisible({ timeout: 25000 });
 	}
 
+	await expect(pc.getByText('Rallying the sweepers…')).toBeVisible();
+	await outsider.close();
 	// Each player places ten mines on the other; both must ready before sweeping.
 	const aOpp = pa.locator('[role="grid"][aria-label="Opponent 1\'s board"] button');
 	for (let i = 0; i < 10; i++) await aOpp.nth(i).click();
@@ -128,7 +146,11 @@ test('tactical: two humans duel, send mines, and preserve the live mirror', asyn
 	const [r, c] = aMines[0];
 	const mine = pa.locator('[role="grid"][aria-label="Your board"] button').nth(r * 9 + c);
 	await mine.click({ button: 'right' });
+	await captureFlight('mine-flight.png');
+	await expect(pa.getByTestId('attack-sent')).toHaveText('↗ Sent 1');
 	await expect(pb.getByTestId('mine-count')).toHaveText('Mines: 11');
+	await expect(pb.getByTestId('attack-received')).toHaveText('↙ Received 1');
+	await expect(pb.getByTestId('attack-projectile')).toHaveCount(0);
 	await expect(
 		pb.locator('[role="grid"][aria-label="Your board"] button.bg-cell-revealed')
 	).toHaveCount(0);
@@ -142,8 +164,30 @@ test('tactical: two humans duel, send mines, and preserve the live mirror', asyn
 		pb.locator('[role="grid"][aria-label="Opponent 1\'s board"] button.bg-cell-revealed')
 	).toHaveCount(revealedOnA);
 
-	await expect(pc.getByText('Rallying the sweepers…')).toBeVisible();
-	await outsider.close();
+	// Changing the preference cancels any in-flight effects; subsequent attacks
+	// still update gameplay and counters without creating projectiles.
+	await pa.emulateMedia({ reducedMotion: 'reduce' });
+	await expect(pa.getByTestId('attack-projectile')).toHaveCount(0);
+	const [nextR, nextC] = aMines[1];
+	await pa
+		.locator('[role="grid"][aria-label="Your board"] button')
+		.nth(nextR * 9 + nextC)
+		.click({ button: 'right' });
+	await expect(pa.getByTestId('attack-sent')).toHaveText('↗ Sent 2');
+	await expect(pa.getByTestId('attack-projectile')).toHaveCount(0);
+	await expect(pb.getByTestId('mine-count')).toHaveText('Mines: 12');
+	await expect(pb.getByTestId('attack-received')).toHaveText('↙ Received 2');
+	await pa.emulateMedia({ reducedMotion: 'no-preference' });
+	await pa.setViewportSize({ width: 375, height: 900 });
+	const [mobileR, mobileC] = aMines[2];
+	await pa
+		.locator('[role="grid"][aria-label="Your board"] button')
+		.nth(mobileR * 9 + mobileC)
+		.click({ button: 'right' });
+	await captureFlight('mine-flight-mobile.png');
+	await expect(pa.getByTestId('attack-sent')).toHaveText('↗ Sent 3');
+	await expect(pb.getByTestId('mine-count')).toHaveText('Mines: 13');
+	expect(await pa.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(375);
 	await a.close();
 	await b.close();
 });
