@@ -157,12 +157,12 @@ describe('perfect bots by construction', () => {
 
 describe('pickGuesslessInjection', () => {
 	it('keeps the victim board solvable after the injected mine', () => {
-		// Build a guessless 9x9 mid-game: open the first click, then inject.
-		const seed = findGuesslessSeed(9, 9, 10, 4, 4);
-		const game = new Game(9, 9, 10, seed!);
+		// This solvable fixture has eligible landing spots. Search all candidates
+		// so the production helper's bounded random sampling cannot flake the test.
+		const game = new Game(9, 9, 10, 2);
+		expect(isGuesslessOpening(game, 4, 4)).toBe(true);
 		game.revealCell(4, 4);
-		const cell = pickGuesslessInjection(game);
-		// A fresh mid-game board should virtually always have a solvable spot.
+		const cell = pickGuesslessInjection(game, 81);
 		expect(cell).not.toBeNull();
 		game.injectMineAt(cell![0], cell![1]);
 		expect(isSolvableNow(game)).toBe(true);
