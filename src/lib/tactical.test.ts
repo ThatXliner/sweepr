@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { advanceIncomingCharge, attackThresholdFor } from './tactical';
+import { advanceIncomingCharge, attackThresholdFor, attackTargetFor } from './tactical';
 
 describe('Tactical attack charge', () => {
 	it('uses one quarter of the player pool as the hit threshold', () => {
@@ -81,5 +81,20 @@ describe('Tactical mine attacks and escape', () => {
 			expect(game.injectMineAt(r, c)).toBe(false);
 		}
 		expect(game.mines).toBe(1);
+	});
+});
+
+describe('single-opponent targeting', () => {
+	it('selects just the preferred living opponent in a full arena', () => {
+		expect(attackTargetFor(Array(16).fill(true), 0, 7)).toBe(7);
+	});
+	it('replaces eliminated, self, and invalid targets with a living opponent', () => {
+		for (const target of [0, 1, 99, undefined]) {
+			expect(attackTargetFor([true, false, true, true], 0, target)).toBe(2);
+		}
+	});
+	it('returns no target when the attacker is eliminated or alone', () => {
+		expect(attackTargetFor([false, true, true], 0, 1)).toBeNull();
+		expect(attackTargetFor([true, false], 0, 1)).toBeNull();
 	});
 });

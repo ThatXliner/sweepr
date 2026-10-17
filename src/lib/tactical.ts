@@ -24,3 +24,15 @@ export function receiveMine(
 	if (cell) return { kind: 'mine', cell };
 	return { kind: game.isSaturated() ? 'buried' : 'blocked' };
 }
+
+/** A player can attack exactly one living opponent. */
+export function attackTargetFor(
+	alive: boolean[],
+	attacker: number,
+	preferred?: number
+): number | null {
+	if (!alive[attacker]) return null;
+	if (preferred !== undefined && preferred !== attacker && alive[preferred]) return preferred;
+	const next = alive.findIndex((living, id) => living && id !== attacker);
+	return next < 0 ? null : next;
+}

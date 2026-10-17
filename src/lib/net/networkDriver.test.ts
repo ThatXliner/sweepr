@@ -122,3 +122,9 @@ it('rejects malformed broadcast payloads before board mutation', () => {
 	}
 	expect(isNetMsg({ kind: 'mine', from: 'p', r: 1, c: 1 })).toBe(true);
 });
+
+it('rejects attacks targeting more than one player', () => {
+	expect(isNetMsg({ kind: 'attack', from: 'p', targets: ['a', 'b'] })).toBe(false);
+	expect(isNetMsg({ kind: 'attack', from: 'p', targets: [] })).toBe(false);
+	expect(isNetMsg({ kind: 'attack', from: 'p', targets: ['a'] })).toBe(true);
+});

@@ -19,7 +19,7 @@ export type NetMsg =
 	// memberId. Slot indices are local to each client (slot 0 = self), so only
 	// memberIds have a shared meaning on the wire.
 	| { kind: 'placement'; from: string; byTarget: Record<string, Coord[]> }
-	// Tactical attack hit: each listed target adds one shared hit to their own
+	// Tactical attack hit: the single listed target adds one hit to their own
 	// incoming charge. The target's client creates and broadcasts a mine only
 	// when its quarter-pool threshold is reached.
 	| { kind: 'attack'; from: string; targets: string[] }
@@ -53,7 +53,7 @@ export function isNetMsg(value: unknown): value is NetMsg {
 		case 'attack':
 			return (
 				Array.isArray(msg.targets) &&
-				msg.targets.length <= 16 &&
+				msg.targets.length === 1 &&
 				msg.targets.every((id) => typeof id === 'string')
 			);
 		case 'placement':

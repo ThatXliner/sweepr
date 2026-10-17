@@ -1,16 +1,23 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import { Switch as SwitchPrimitive, type WithoutChildrenOrChild } from 'bits-ui';
 	import { cn } from '$lib/utils.js';
 
 	let {
 		class: className = undefined,
 		checked = $bindable(false),
+		disabled = false,
 		ref = $bindable(null),
 		...restProps
 	}: WithoutChildrenOrChild<SwitchPrimitive.RootProps> = $props();
+	let ready = $state(false);
+	onMount(() => {
+		ready = true;
+	});
 </script>
 
 <SwitchPrimitive.Root
+	disabled={!ready || disabled}
 	bind:checked
 	bind:ref
 	class={cn(

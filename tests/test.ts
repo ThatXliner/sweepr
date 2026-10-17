@@ -172,3 +172,18 @@ test('tactical: private room menu validates codes and lets the host cancel', asy
 	await page.getByRole('button', { name: 'Cancel', exact: true }).click();
 	await expect(page.getByRole('heading', { name: 'Private 1v1 duel' })).toBeVisible();
 });
+
+test('tactical: arena targeting selects one opponent with mouse or keyboard', async ({ page }) => {
+	await openTacticalBotGame(page);
+	await page.getByRole('button', { name: /Ready/ }).click();
+	const targets = page.getByTestId('target-button');
+	await expect(targets).toHaveCount(15);
+	await expect(page.locator('[data-testid="target-button"][aria-pressed="true"]')).toHaveCount(1);
+	await page.locator('[data-target="2"]').click();
+	await expect(page.locator('[data-target="2"]')).toHaveAttribute('aria-pressed', 'true');
+	await page.locator('[data-target="3"]').focus();
+	await page.locator('[data-target="3"]').press('Enter');
+	await expect(page.locator('[data-target="3"]')).toHaveAttribute('aria-pressed', 'true');
+	await expect(page.locator('[data-testid="target-button"][aria-pressed="true"]')).toHaveCount(1);
+	await expect(page.locator('[role="grid"].pointer-events-none')).toHaveCount(15);
+});

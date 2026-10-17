@@ -38,11 +38,12 @@ test('blitz: two players are matched and see each other live', async ({ browser 
 	for (const p of [pa, pb]) {
 		await expect(p.locator('button.h-6:not(.rounded-full)')).toHaveCount(512, { timeout: 20000 });
 		await expect(p.getByText(/Opponent — 0 cleared/)).toBeVisible();
+		await expect(p.getByText('live', { exact: true })).toBeVisible();
 	}
 
 	// Player A reveals a cell; B's mirror of A should show progress (A's "You"
 	// count rises locally, and B sees A's opponent board update).
-	await pa.locator('button.h-6:not(.rounded-full)').nth(40).click();
+	await pa.locator('[role="grid"][aria-label="Your board"] button').nth(40).click();
 	await expect(pa.getByText(/You — [1-9]/)).toBeVisible({ timeout: 10000 });
 	// B's opponent panel (which mirrors A) should leave the 0-cleared state.
 	await expect(pb.getByText(/Opponent — 0 cleared/)).toBeHidden({ timeout: 10000 });

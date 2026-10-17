@@ -20,7 +20,12 @@
 	import type { RealtimeChannel } from '@supabase/supabase-js';
 	import { makeNetworkDriver, broadcastMove, type Coord, isNetMsg } from '$lib/net/networkDriver';
 	import { findGuesslessSeed, findSafeOpeningSeed } from '$lib/solver';
-	import { advanceIncomingCharge, attackThresholdFor, receiveMine } from '$lib/tactical';
+	import {
+		advanceIncomingCharge,
+		attackThresholdFor,
+		receiveMine,
+		attackTargetFor
+	} from '$lib/tactical';
 
 	interface NetProps {
 		channel: RealtimeChannel;
@@ -93,6 +98,16 @@
 	let attackNotice = $state('');
 	let sentAttacks = $state(0);
 	let receivedMines = $state(0);
+	// tetr.io-style aim: attacks go to ONE opponent at a time. `selectedTarget` is
+	// the player's pick; `targetId` is the living opponent attacks should hit —
+	// the pick while it's alive, else the first living opponent.
+	let selectedTarget = $state<number>(1);
+	let targetId = $derived(attackTargetFor(alive, HUMAN, selectedTarget));
+	// Snap the pick to the fallback when the selected opponent dies, so
+	// `selectedTarget` itself always names a living opponent once boards exist.
+	$effect(() => {
+		if (targetId !== null && targetId !== selectedTarget) selectedTarget = targetId;
+	});
 	let arenaElement = $state<HTMLDivElement>();
 	let attackEffects: { launch: (from: Element | null, to: Element | null) => void } | undefined;
 
@@ -284,8 +299,8 @@
 				boards = [...boards];
 				checkPlayer(id);
 			},
-			// Every correct flag targets all other players with one shared hit.
-			onCorrectFlag: () => sendHitToOpponents(id)
+			// Each bot flag attacks one living opponent.
+			onCorrectFlag: () => sendHitToTarget(id)
 		});
 	}
 
@@ -350,24 +365,28 @@
 		bots[id]?.stop();
 	}
 
-	// One correct flag adds one hit to every living opponent. Local targets are
-	// updated here; online human targets receive the hit over the network and own
-	// their counter, mine placement, and resulting board broadcast.
-	function sendHitToOpponents(fromId: number, source: Element | null = attackTarget(fromId)) {
-		if (fromId === HUMAN) sentAttacks++;
-		const remoteTargets: string[] = [];
-		for (const id of ids) {
-			if (id === fromId || !alive[id]) continue;
-			const peer = net?.peerForSlot?.[id] ?? null;
-			// Bots are simulated per client, so their hits never directly mutate a
-			// remote human's mirror. That human owns the bots attacking their board.
-			if (net && fromId !== HUMAN && peer) continue;
-			if (fromId === HUMAN) attackEffects?.launch(source, attackTarget(id));
-			if (peer) remoteTargets.push(peer);
-			else receiveAttackHit(id, fromId);
+	// One correct flag attacks exactly one living opponent. Each online player
+	// owns incoming charge and mine placement on their own board.
+	function sendHitToTarget(fromId: number, source: Element | null = attackTarget(fromId)) {
+		const candidates = ids.filter(
+			(id) => id !== fromId && alive[id] && !(net && fromId !== HUMAN && net.peerForSlot?.[id])
+		);
+		const preferred =
+			fromId === HUMAN
+				? (targetId ?? undefined)
+				: candidates[Math.floor(Math.random() * candidates.length)];
+		if (!candidates.length) return;
+		const target = attackTargetFor(alive, fromId, preferred);
+		if (target === null) return;
+		if (fromId === HUMAN) {
+			sentAttacks++;
+			attackEffects?.launch(source, attackTarget(target));
 		}
-		if (net && remoteTargets.length) {
-			broadcastMove(net.channel, { kind: 'attack', from: net.memberId, targets: remoteTargets });
+		const peer = net?.peerForSlot?.[target];
+		if (net && peer) {
+			broadcastMove(net.channel, { kind: 'attack', from: net.memberId, targets: [peer] });
+		} else {
+			receiveAttackHit(target, fromId);
 		}
 	}
 
@@ -492,15 +511,14 @@
 		boards[HUMAN] = games[HUMAN].flagCell(row, col);
 		boards = [...boards];
 		if (net) broadcastMove(net.channel, { kind: 'flag', from: net.memberId, r: row, c: col });
-		// A correct flag targets every opponent with one hit. Hits from different
-		// attackers share each target's quarter-pool charge.
+		// A correct flag attacks the currently selected opponent once.
 		const key = `${row},${col}`;
 		// eslint-disable-next-line svelte/prefer-svelte-reactivity
 		const sent = attackedCells.get(HUMAN) ?? new Set<string>();
 		if (!wasFlagged && cell.isFlagged && cell.isMine && !sent.has(key)) {
 			sent.add(key);
 			attackedCells.set(HUMAN, sent);
-			sendHitToOpponents(
+			sendHitToTarget(
 				HUMAN,
 				arenaElement?.querySelector(
 					`[data-player-panel="0"] button[data-row="${row}"][data-col="${col}"]`
@@ -611,9 +629,12 @@
 				Left click reveals, right click flags. Hit a mine and you're eliminated.
 			</p>
 			<p>
-				<strong>Attack:</strong> each correct flag targets every opponent with one hit. Hits from
-				any players combine; every {attackThreshold} hits on your board become one hidden mine. Reveal
-				every safe square and flag every mine on your board and you get a fresh, harder one.
+				<strong>Attack:</strong> each correct flag sends one hit to your one selected target.
+				{#if players === 2}In a 1v1 your only opponent is always the target.{:else}Press the
+					<em>Target</em> button above an opponent's board to aim at them; if they're knocked out, your
+					aim moves to the next living opponent.{/if} Hits from any players combine; every
+				{attackThreshold} hits on your board become one hidden mine. Reveal every safe square and flag
+				every mine on your board and you get a fresh, harder one.
 			</p>
 			<p>
 				<strong>Stay sharp:</strong> attacks never change revealed numbers, but hidden mines can force
@@ -701,17 +722,50 @@
 			<p class="text-sm text-muted-foreground">
 				{invertControls
 					? 'Left-click flags, right-click reveals'
-					: 'Left-click reveals, right-click flags'} — every correct flag targets each opponent; every
+					: 'Left-click reveals, right-click flags'} — every correct flag hits your selected target; every
 				{attackThreshold} combined hits become one mine. Last sweeper alive wins.
 			</p>
 		{/if}
 		{#snippet miniBoard(id: number)}
+			{@const isTarget = alive[id] && targetId === id}
 			<div
 				data-player-panel={id}
-				class="relative flex flex-col items-center gap-0.5"
+				class="relative flex flex-col items-center gap-0.5 rounded-md p-1 outline-2 outline-offset-1 transition-[outline-color] motion-reduce:transition-none {isTarget
+					? 'outline-red-600 dark:outline-red-400'
+					: 'outline-transparent'}"
 				class:opacity-40={!alive[id]}
 				title="Opponent {id} — {clearedCount(boards[id])} cleared{alive[id] ? '' : ' (eliminated)'}"
 			>
+				<!-- Target picker sits outside the non-interactive Board so it stays
+					clickable and focusable; the board itself is never restyled. -->
+				{#if players === 2}
+					<span
+						data-testid="target-auto"
+						class="rounded px-1.5 py-0.5 font-mono text-[10px] leading-tight font-black tracking-wide text-white uppercase {alive[
+							id
+						]
+							? 'bg-red-600'
+							: 'bg-muted text-muted-foreground'}"
+					>
+						Target P{id} · auto
+					</span>
+				{:else}
+					<button
+						type="button"
+						data-testid="target-button"
+						data-target={id}
+						aria-pressed={isTarget}
+						disabled={!alive[id] || !alive[HUMAN] || phase !== 'sweeping'}
+						onclick={() => (selectedTarget = id)}
+						class="rounded px-1.5 py-0.5 font-mono text-[9px] leading-tight font-bold whitespace-nowrap transition-colors focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-1 focus-visible:ring-offset-background focus-visible:outline-none disabled:cursor-not-allowed motion-reduce:transition-none {isTarget
+							? 'bg-red-600 text-white'
+							: alive[id]
+								? 'border border-red-500/40 text-red-700 hover:bg-red-500/10 dark:text-red-300'
+								: 'border border-transparent text-muted-foreground line-through'}"
+					>
+						{#if !alive[id]}P{id} out{:else if isTarget}TARGET P{id}{:else}Target P{id}{/if}
+					</button>
+				{/if}
 				<Board_
 					board={boards[id]}
 					interactive={false}

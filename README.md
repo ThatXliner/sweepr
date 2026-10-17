@@ -29,7 +29,7 @@ The private match starts when both humans join the game channel. Each player pla
 mines on the other player's board and chooses **Ready**.
 
 The first reveal deals a safe, solvable opening where possible, preserving the
-opponent's mine count. In a 1v1 duel, each newly correct flag sends one mine to the rival. In the arena, every four incoming hits create one mine. Toggling
+opponent's mine count. Each newly correct flag sends a hit to your selected opponent only. Choose a target using the button above an opponent board; an eliminated target is replaced automatically. Private 1v1 duels always target the other player. In the arena, every four incoming hits create one mine. Toggling
 the same flag again does not send another attack. A mine lands only on an unflagged,
 covered safe square that has no revealed neighbor, keeping every visible number
 accurate. If no legal landing exists but safe squares remain, the attack is blocked.
@@ -72,7 +72,7 @@ and `DISABLE_SIGNUP=false`; both settings are required for anonymous players to 
 To verify the actual deployment without starting a local preview server:
 
 ```bash
-PLAYWRIGHT_BASE_URL=https://sweepr-bigmac.bryanhu.com \
+PLAYWRIGHT_BASE_URL=https://sweepr.bryanhu.com \
 PUBLIC_SUPABASE_URL=https://sweeper-supabase.bryanhu.com \
 PUBLIC_SUPABASE_ANON_KEY=your-public-key \
 bunx playwright test tests/multiplayer.spec.ts
