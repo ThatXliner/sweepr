@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { advanceIncomingCharge, attackThresholdFor, attackTargetFor } from './tactical';
+import {
+	advanceIncomingCharge,
+	attackThresholdFor,
+	attackTargetFor,
+	hitsPerMine,
+	targetFallbackNotice
+} from './tactical';
 
 describe('Tactical attack charge', () => {
 	it('uses one quarter of the player pool as the hit threshold', () => {
@@ -96,5 +102,18 @@ describe('single-opponent targeting', () => {
 	it('returns no target when the attacker is eliminated or alone', () => {
 		expect(attackTargetFor([false, true, true], 0, 1)).toBeNull();
 		expect(attackTargetFor([true, false], 0, 1)).toBeNull();
+	});
+	it('falls back to the lowest-numbered living opponent, not the next seat', () => {
+		expect(attackTargetFor([true, true, true, false, true], 0, 3)).toBe(1);
+	});
+});
+
+describe('targeting copy', () => {
+	it('uses singular hit text when one hit makes a mine', () => {
+		expect(hitsPerMine(1)).toBe('every hit becomes');
+		expect(hitsPerMine(4)).toBe('every 4 hits become');
+	});
+	it('names both the knocked-out and fallback targets', () => {
+		expect(targetFallbackNotice(3, 1)).toBe('P3 is out — now targeting P1.');
 	});
 });

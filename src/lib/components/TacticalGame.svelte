@@ -24,7 +24,9 @@
 		advanceIncomingCharge,
 		attackThresholdFor,
 		receiveMine,
-		attackTargetFor
+		attackTargetFor,
+		hitsPerMine,
+		targetFallbackNotice
 	} from '$lib/tactical';
 
 	interface NetProps {
@@ -100,13 +102,16 @@
 	let receivedMines = $state(0);
 	// tetr.io-style aim: attacks go to ONE opponent at a time. `selectedTarget` is
 	// the player's pick; `targetId` is the living opponent attacks should hit —
-	// the pick while it's alive, else the first living opponent.
+	// the pick while it's alive, else the lowest-numbered living opponent.
 	let selectedTarget = $state<number>(1);
 	let targetId = $derived(attackTargetFor(alive, HUMAN, selectedTarget));
 	// Snap the pick to the fallback when the selected opponent dies, so
-	// `selectedTarget` itself always names a living opponent once boards exist.
+	// `selectedTarget` itself always names a living opponent once boards exist,
+	// and say so on the status line — the aim moved without the player acting.
 	$effect(() => {
-		if (targetId !== null && targetId !== selectedTarget) selectedTarget = targetId;
+		if (targetId === null || targetId === selectedTarget) return;
+		if (phase === 'sweeping') attackNotice = targetFallbackNotice(selectedTarget, targetId);
+		selectedTarget = targetId;
 	});
 	let arenaElement = $state<HTMLDivElement>();
 	let attackEffects: { launch: (from: Element | null, to: Element | null) => void } | undefined;
@@ -630,10 +635,10 @@
 			</p>
 			<p>
 				<strong>Attack:</strong> each correct flag sends one hit to your one selected target.
-				{#if players === 2}In a 1v1 your only opponent is always the target.{:else}Press the
-					<em>Target</em> button above an opponent's board to aim at them; if they're knocked out, your
-					aim moves to the next living opponent.{/if} Hits from any players combine; every
-				{attackThreshold} hits on your board become one hidden mine. Reveal every safe square and flag
+				{#if players === 2}In a 1v1 your only opponent is always the target.{:else}Tap an opponent's
+					board (or its <em>Target</em> button) to aim at them. If they're knocked out, your aim moves
+					to the lowest-numbered opponent still standing.{/if} Hits from all opponents combine:
+				{hitsPerMine(attackThreshold)} one hidden mine on your board. Reveal every safe square and flag
 				every mine on your board and you get a fresh, harder one.
 			</p>
 			<p>
@@ -722,8 +727,8 @@
 			<p class="text-sm text-muted-foreground">
 				{invertControls
 					? 'Left-click flags, right-click reveals'
-					: 'Left-click reveals, right-click flags'} — every correct flag hits your selected target; every
-				{attackThreshold} combined hits become one mine. Last sweeper alive wins.
+					: 'Left-click reveals, right-click flags'} — every correct flag hits your selected target;
+				{hitsPerMine(attackThreshold)} one mine. Last sweeper alive wins.
 			</p>
 		{/if}
 		{#snippet miniBoard(id: number)}
@@ -737,14 +742,16 @@
 				title="Opponent {id} — {clearedCount(boards[id])} cleared{alive[id] ? '' : ' (eliminated)'}"
 			>
 				<!-- Target picker sits outside the non-interactive Board so it stays
-					clickable and focusable; the board itself is never restyled. -->
+					clickable and focusable; the board itself is never restyled. Its
+					::after stretches over the whole panel so a tap anywhere on the tiny
+					board aims at it. -->
 				{#if players === 2}
 					<span
 						data-testid="target-auto"
-						class="rounded px-1.5 py-0.5 font-mono text-[10px] leading-tight font-black tracking-wide text-white uppercase {alive[
+						class="rounded px-1.5 py-0.5 font-mono text-[10px] leading-tight font-black tracking-wide uppercase {alive[
 							id
 						]
-							? 'bg-red-600'
+							? 'bg-red-600 text-white'
 							: 'bg-muted text-muted-foreground'}"
 					>
 						Target P{id} · auto
@@ -757,7 +764,7 @@
 						aria-pressed={isTarget}
 						disabled={!alive[id] || !alive[HUMAN] || phase !== 'sweeping'}
 						onclick={() => (selectedTarget = id)}
-						class="rounded px-1.5 py-0.5 font-mono text-[9px] leading-tight font-bold whitespace-nowrap transition-colors focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-1 focus-visible:ring-offset-background focus-visible:outline-none disabled:cursor-not-allowed motion-reduce:transition-none {isTarget
+						class="min-h-7 w-full rounded px-1 font-mono text-[10px] leading-tight font-bold whitespace-nowrap transition-colors after:absolute after:inset-0 after:rounded-md focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-1 focus-visible:ring-offset-background focus-visible:outline-none disabled:cursor-not-allowed motion-reduce:transition-none {isTarget
 							? 'bg-red-600 text-white'
 							: alive[id]
 								? 'border border-red-500/40 text-red-700 hover:bg-red-500/10 dark:text-red-300'
@@ -784,30 +791,26 @@
 						: 'KO'}
 				</span>
 				{#if !alive[id]}
-					<span class="absolute inset-0 flex items-center justify-center text-lg">💀</span>
+					<span
+						aria-hidden="true"
+						class="pointer-events-none absolute inset-0 flex items-center justify-center text-lg"
+						>💀</span
+					>
 				{/if}
 			</div>
 		{/snippet}
 
 		<!-- tetr.io-style arena: your board centred and large, the 15 opponents as
 			tiny live boards down the left and right flanks. On small screens the
-			flanks drop below your board instead of squeezing it. -->
+			flanks drop below your board instead of squeezing it. Your panel comes
+			first in the DOM so keyboard focus reaches your board before any target
+			picker; on desktop `order` slides the left flank in front of it. -->
 		<div
-			class="flex w-full flex-col items-center gap-6 md:flex-row md:items-start md:justify-center"
+			class="flex w-full flex-col items-center gap-6 lg:flex-row lg:items-start lg:justify-center"
 		>
 			<div
-				class="order-2 grid {players === 2
-					? 'grid-cols-1'
-					: 'grid-cols-4'} content-start gap-2 md:order-1"
-			>
-				{#each leftFlank as id (id)}
-					{@render miniBoard(id)}
-				{/each}
-			</div>
-
-			<div
 				data-player-panel={HUMAN}
-				class="order-1 flex shrink-0 flex-col items-center gap-1.5 md:order-2 md:px-4"
+				class="flex shrink-0 flex-col items-center gap-1.5 lg:order-2 lg:px-4"
 				class:opacity-50={!alive[HUMAN]}
 			>
 				<h3 class="text-lg font-black tracking-tight tabular-nums">
@@ -818,7 +821,9 @@
 						>
 					{/if}
 				</h3>
-				<div class="flex items-center gap-2 text-xs font-semibold text-muted-foreground">
+				<div
+					class="flex flex-wrap items-center justify-center gap-2 text-xs font-semibold text-muted-foreground"
+				>
 					<span
 						data-attack-target={HUMAN}
 						data-testid="mine-count"
@@ -848,10 +853,21 @@
 					cellSize="h-7 w-7"
 					label="Your board"
 				/>
-				<div class="flex gap-3 font-mono text-xs font-bold tabular-nums">
+				<div
+					class="flex flex-wrap justify-center gap-x-3 gap-y-1.5 font-mono text-xs font-bold tabular-nums"
+				>
 					<span class="rounded-md bg-red-600 px-2.5 py-1 text-white" data-testid="attack-sent"
 						>↗ Sent {sentAttacks}</span
 					>
+					<!-- On small screens the flanks sit below the fold, so name the aim
+						here; on desktop the outlined flank board already shows it. -->
+					{#if targetId !== null && phase === 'sweeping'}
+						<span
+							data-testid="current-target"
+							class="rounded-md border-2 border-red-600 px-2 py-0.5 text-red-700 lg:hidden dark:border-red-400 dark:text-red-300"
+							>Target P{targetId} · {clearedCount(boards[targetId])}</span
+						>
+					{/if}
 					<span
 						class="rounded-md border border-red-500/30 px-2.5 py-1 text-red-700 dark:text-red-300"
 						data-testid="attack-received">↙ Received {receivedMines}</span
@@ -861,7 +877,15 @@
 				<span class="text-sm text-muted-foreground">{alive[HUMAN] ? 'alive' : 'eliminated'}</span>
 			</div>
 
-			<div class="order-3 grid grid-cols-4 content-start gap-2">
+			<div
+				class="grid {players === 2 ? 'grid-cols-1' : 'grid-cols-4'} content-start gap-2 lg:order-1"
+			>
+				{#each leftFlank as id (id)}
+					{@render miniBoard(id)}
+				{/each}
+			</div>
+
+			<div class="grid grid-cols-4 content-start gap-2 lg:order-3">
 				{#each rightFlank as id (id)}
 					{@render miniBoard(id)}
 				{/each}

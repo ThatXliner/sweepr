@@ -25,7 +25,20 @@ export function receiveMine(
 	return { kind: game.isSaturated() ? 'buried' : 'blocked' };
 }
 
-/** A player can attack exactly one living opponent. */
+/** "every hit becomes" / "every 4 hits become" — singular when one hit is a mine. */
+export function hitsPerMine(threshold: number): string {
+	return threshold === 1 ? 'every hit becomes' : `every ${threshold} hits become`;
+}
+
+/** Status-line copy when a knocked-out target hands aim to the fallback. */
+export function targetFallbackNotice(lost: number, next: number): string {
+	return `P${lost} is out — now targeting P${next}.`;
+}
+
+/**
+ * A player can attack exactly one living opponent. If the preferred target is
+ * gone, aim falls back to the lowest-numbered living opponent.
+ */
 export function attackTargetFor(
 	alive: boolean[],
 	attacker: number,

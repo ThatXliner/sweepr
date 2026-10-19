@@ -127,6 +127,13 @@ test('tactical: two humans duel, send mines, and preserve the live mirror', asyn
 	for (const p of [pa, pb]) {
 		await expect(p.locator('[role="grid"]')).toHaveCount(2, { timeout: 20000 });
 	}
+	// 1v1 aims automatically; one hit is one mine, so the copy is singular.
+	const autoTarget = pa.getByTestId('target-auto');
+	await expect(autoTarget).toHaveText('Target P1 · auto');
+	await expect(autoTarget).toHaveClass(/\bbg-red-600\b.*\btext-white\b/);
+	await expect(autoTarget).not.toHaveClass(/text-muted-foreground/);
+	await expect(pa.getByTestId('target-button')).toHaveCount(0);
+	await expect(pa.getByText(/every hit becomes one mine/)).toBeVisible();
 
 	// Mirror exactness: A reveals a cell on its own board; the flood-filled
 	// reveal count on A's real board must show up identically on B's mirror of A
@@ -180,6 +187,7 @@ test('tactical: two humans duel, send mines, and preserve the live mirror', asyn
 	await expect(pb.getByTestId('attack-received')).toHaveText('↙ Received 2');
 	await pa.emulateMedia({ reducedMotion: 'no-preference' });
 	await pa.setViewportSize({ width: 375, height: 900 });
+	await expect(pa.getByTestId('current-target')).toHaveText(/^Target P1 · \d+$/);
 	const [mobileR, mobileC] = aMines[2];
 	await pa
 		.locator('[role="grid"][aria-label="Your board"] button')
