@@ -120,7 +120,12 @@ test('tactical: bots sweep their guessless boards and make progress', async ({ p
 
 	// Perfect solvers on solvable boards: every bot makes deterministic progress.
 	// Some mini-board nameplate ticks past zero cleared within a few moves.
-	await expect(page.getByText(/P\d+ · [1-9]/).first()).toBeVisible({ timeout: 30000 });
+	await expect(
+		page
+			.locator('[data-attack-target]')
+			.filter({ hasText: /P\d+ · [1-9]/ })
+			.first()
+	).toBeVisible({ timeout: 30000 });
 });
 
 test('tactical: opponent boards are not clickable during the sweep', async ({ page }) => {
@@ -186,4 +191,112 @@ test('tactical: arena targeting selects one opponent with mouse or keyboard', as
 	await expect(page.locator('[data-target="3"]')).toHaveAttribute('aria-pressed', 'true');
 	await expect(page.locator('[data-testid="target-button"][aria-pressed="true"]')).toHaveCount(1);
 	await expect(page.locator('[role="grid"].pointer-events-none')).toHaveCount(15);
+});
+
+for (const width of [360, 390, 820, 960]) {
+	test.describe(`tactical: ${width}px compact arena`, () => {
+		test.use({ viewport: { width, height: 800 }, hasTouch: true });
+
+		test('your board and current target lead; tiny boards are tap targets', async ({
+			page
+		}, testInfo) => {
+			await openTacticalBotGame(page);
+			await page.getByRole('button', { name: /Ready/ }).click();
+			await page.screenshot({ path: testInfo.outputPath(`arena-${width}.png`), fullPage: true });
+			expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
+				width
+			);
+
+			// The aim is named beside your own board, above the fold.
+			const current = page.getByTestId('current-target');
+			await expect(current).toBeVisible();
+			await expect(current).toHaveText(/^Target P1 · \d+$/);
+			const own = (await page.getByRole('grid', { name: 'Your board' }).boundingBox())!;
+			const firstPicker = page.locator('[data-target="1"]');
+			expect((await firstPicker.boundingBox())!.y).toBeGreaterThan(own.y + own.height);
+
+			// Focus order matches the stack: your board, then flank pickers in seat order.
+			await page.locator('[role="grid"][aria-label="Your board"] button[tabindex="0"]').focus();
+			await page.keyboard.press('Tab');
+			await expect(firstPicker).toBeFocused();
+			await page.keyboard.press('Tab');
+			await expect(page.locator('[data-target="2"]')).toBeFocused();
+			await page.keyboard.press('Space');
+			await expect(page.locator('[data-target="2"]')).toHaveAttribute('aria-pressed', 'true');
+			await expect(current).toHaveText(/^Target P2 · /);
+
+			// A tap on the middle of a tiny board aims at it; the whole panel is the target.
+			const picker = page.locator('[data-target="9"]');
+			await picker.scrollIntoViewIfNeeded();
+			expect((await picker.boundingBox())!.height).toBeGreaterThanOrEqual(28);
+			const panel = (await page.locator('[data-player-panel="9"]').boundingBox())!;
+			expect(Math.min(panel.width, panel.height)).toBeGreaterThanOrEqual(44);
+			const board = (await page.getByRole('grid', { name: "Opponent 9's board" }).boundingBox())!;
+			await page.touchscreen.tap(board.x + board.width / 2, board.y + board.height / 2);
+			await expect(picker).toHaveAttribute('aria-pressed', 'true');
+			await expect(page.locator('[data-testid="target-button"][aria-pressed="true"]')).toHaveCount(
+				1
+			);
+			await expect(current).toHaveText(/^Target P9 · /);
+			await page.screenshot({
+				path: testInfo.outputPath(`arena-${width}-tapped-p9.png`),
+				fullPage: true
+			});
+		});
+	});
+}
+
+test('tactical: a knocked-out target hands aim to the lowest living seat, out loud', async ({
+	page
+}, testInfo) => {
+	test.setTimeout(120_000);
+	// Seeded randomness keeps easy-bot misclicks reproducible; the fake clock
+	// lets a minute of bot play run in moments. Reduced motion stays honored.
+	await page.addInitScript(() => {
+		let seed = 0x5eed;
+		Math.random = () => {
+			seed = (seed + 0x6d2b79f5) | 0;
+			let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+			t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+			return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+		};
+	});
+	await page.emulateMedia({ reducedMotion: 'reduce' });
+	const start = new Date('2026-01-01T12:00:00Z');
+	await page.clock.install({ time: start });
+	await openTacticalBotGame(page);
+	await page.getByLabel('Bot difficulty').selectOption('easy');
+	await page.getByRole('button', { name: /Ready/ }).click();
+	await page.clock.pauseAt(new Date(start.getTime() + 60_000));
+
+	const status = page.getByRole('status');
+	let notice = '';
+	for (let step = 0; step < 300 && !notice.includes(' is out'); step++) {
+		await page.clock.runFor(2_000);
+		notice = (await status.textContent()) ?? '';
+	}
+	const [, lost, next] = notice.match(/^P(\d+) is out — now targeting P(\d+)\.$/) ?? [];
+	expect(lost, `no fallback notice; status was "${notice}"`).toBeTruthy();
+	await page.screenshot({ path: testInfo.outputPath('target-fallback.png'), fullPage: true });
+
+	await expect(page.locator(`[data-target="${lost}"]`)).toBeDisabled();
+	await expect(page.locator(`[data-target="${lost}"]`)).toHaveText(`P${lost} out`);
+	await expect(page.locator(`[data-target="${next}"]`)).toHaveAttribute('aria-pressed', 'true');
+	const lowestLiving = page.locator('[data-testid="target-button"]:not([disabled])').first();
+	await expect(lowestLiving).toHaveAttribute('data-target', next);
+	// The skull is decoration; the picker text already says who's out.
+	await expect(page.locator(`[data-player-panel="${lost}"] [aria-hidden="true"]`)).toHaveText('💀');
+	await expect(page.getByTestId('attack-projectile')).toHaveCount(0);
+});
+
+test('tactical: help copy matches the fallback rule and pluralizes hits', async ({
+	page
+}, testInfo) => {
+	await openTacticalBotGame(page);
+	await page.getByRole('button', { name: /Ready/ }).click();
+	await expect(page.getByTestId('current-target')).toBeHidden();
+	await page.screenshot({ path: testInfo.outputPath('arena-desktop.png'), fullPage: true });
+	await expect(page.getByText(/every 4 hits become one mine/)).toBeVisible();
+	await page.getByRole('button', { name: 'How Tactical works' }).click();
+	await expect(page.getByText(/lowest-numbered opponent still standing/)).toBeVisible();
 });
