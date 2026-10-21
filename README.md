@@ -4,9 +4,9 @@ Minesweeper with Classic solo play, Blitz races, and Tactical arenas with privat
 
 ## Local development
 
-Install dependencies with `bun install`. Start Docker and run `supabase start`, then
+Install dependencies with `npm ci`. Start Docker and run `supabase start`, then
 copy `.env.example` to `.env` and fill in the URL and public anon key from
-`supabase status`. Run `bun run dev`.
+`supabase status`. Run `npm run dev`.
 
 For a hosted Supabase project, use its URL and publishable key and enable anonymous
 sign-ins in Auth. The checked-in local Supabase configuration already enables them.
@@ -47,19 +47,19 @@ sent to peers, and it does not provide server-side anti-cheat or reconnect recov
 
 ## Verification
 
-- `bun run check` — Svelte and TypeScript checks.
-- `bun run test:unit --run` — board rules, solver, matchmaking, and network messages.
-- `bun run test:integration` — browser flows, including two-human mine delivery
+- `npm run check` — Svelte and TypeScript checks.
+- `npm run test:unit --run` — board rules, solver, matchmaking, and network messages.
+- `npm run test:integration` — browser flows, including two-human mine delivery
   against the Supabase URL in your environment. Live multiplayer tests skip if
   that service is unavailable.
-- `bun run build` — production build.
+- `npm run build` — production build.
 
 Browser tests use port 4173 by default. Set `PLAYWRIGHT_PORT` if another app uses
-that port. Install Chromium for the tests with `bunx playwright install chromium`.
+that port. Install Chromium for the tests with `npx --no-install playwright install chromium`.
 
 ## Deploying on big-mac
 
-The default build uses Vercel. `SWEEPR_ADAPTER=node bun run build` produces a
+The default build uses Vercel. `SWEEPR_ADAPTER=node npm run build` produces a
 standalone Node server for self-hosting. The production Docker Compose file builds
 that server and binds it to `127.0.0.1:3017` (override with `SWEEPR_PORT`).
 
@@ -75,7 +75,13 @@ To verify the actual deployment without starting a local preview server:
 PLAYWRIGHT_BASE_URL=https://sweepr.bryanhu.com \
 PUBLIC_SUPABASE_URL=https://sweeper-supabase.bryanhu.com \
 PUBLIC_SUPABASE_ANON_KEY=your-public-key \
-bunx playwright test tests/multiplayer.spec.ts
+npx --no-install playwright test tests/multiplayer.spec.ts
 ```
 
 Deployed multiplayer checks fail if Supabase is unreachable; they do not skip.
+
+## TLS runtime requirement
+
+Use Node.js 22.23.4 or later in the 22.x series for installs, builds, and server execution. These floors include the October 2026 eMudhra CA distrust update.
+Restart or rebuild existing deployments after upgrading; an engine declaration alone does not update a running process.
+Use `npm ci` with the committed npm lockfile. Bun 1.3.14 is vulnerable and is not a supported HTTPS runtime.
