@@ -7,7 +7,7 @@ const config: PlaywrightTestConfig = {
 	webServer: process.env.PLAYWRIGHT_BASE_URL
 		? undefined
 		: {
-				command: `bun run build && bun run preview --host 127.0.0.1 --port ${port} --strictPort`,
+				command: `npm run build && npm run preview --host 127.0.0.1 --port ${port} --strictPort`,
 				url: baseURL
 			},
 	use: { baseURL },

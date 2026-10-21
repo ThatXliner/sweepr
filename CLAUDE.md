@@ -9,7 +9,7 @@
 - shadcn-svelte components (slate base color) + bits-ui primitives
 - Supabase auth (`@supabase/ssr`)
 - Deployed on Vercel (`@sveltejs/adapter-vercel`)
-- Package manager: **bun**
+- Package manager: **npm on Node.js 22.23.4+ (22.x)**
 - Tests: Vitest (unit) + Playwright (integration)
 
 ## Game Modes
