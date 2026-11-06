@@ -10,6 +10,11 @@ Minesweeper with Classic solo play, Blitz races, and Tactical arenas with privat
   <img alt="Blitz" src="https://img.shields.io/badge/-Blitz-eab308">
 </p>
 
+<p align="center">
+  <a href="brag-output/brag.mp4"><img src="brag-output/brag.jpg" alt="Watch the 19-second sweepr video" width="720"></a>
+  <br><sub><a href="brag-output/brag.mp4">▶ Watch the 19-second video</a></sub>
+</p>
+
 ## Local development
 
 Install dependencies with `npm ci`. Start Docker and run `supabase start`, then
