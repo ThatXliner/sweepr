@@ -8,8 +8,8 @@
   <img alt="Blitz" src="https://img.shields.io/badge/-Blitz-eab308">
 </p>
 <p align="center">
-  <a href="brag-output/brag.mp4"><img src="brag-output/brag.jpg" alt="Watch the 19-second sweepr video" width="720"></a>
-  <br><sub><a href="brag-output/brag.mp4">▶ Watch the 19-second video</a></sub>
+  <a href="https://youtu.be/jdb2C_ca6EY"><img src="brag-output/brag.jpg" alt="Watch the 19-second sweepr video" width="720"></a>
+  <br><sub><a href="https://youtu.be/jdb2C_ca6EY">▶ Watch on YouTube</a></sub>
 </p>
 
 
