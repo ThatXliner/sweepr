@@ -1,6 +1,14 @@
-# Sweepr
+<h1 align="center"><code>sweepr</code></h1>
 
-Minesweeper with Classic solo play, Blitz races, and Tactical arenas with private 1v1 mine duels.
+<p align="center"><strong><em>This is minesweeper, reimagined.</em></strong><br>
+Minesweeper with Classic solo play, Blitz races, and Tactical arenas with private 1v1 mine duels.</p>
+
+<p align="center">
+  <a href="https://lyners-sweepr.vercel.app"><img alt="Play now" src="https://img.shields.io/badge/play-now-0f172a"></a>
+  <img alt="Classic" src="https://img.shields.io/badge/-Classic-3b82f6">
+  <img alt="Tactical" src="https://img.shields.io/badge/-Tactical-ef4444">
+  <img alt="Blitz" src="https://img.shields.io/badge/-Blitz-eab308">
+</p>
 
 ## Local development
 
