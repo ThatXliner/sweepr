@@ -98,8 +98,6 @@ npx --no-install playwright test tests/multiplayer.spec.ts
 
 Deployed multiplayer checks fail if Supabase is unreachable; they do not skip.
 
-## TLS runtime requirement
+## Runtime requirement
 
-Use Node.js 22.23.4 or later in the 22.x series for installs, builds, and server execution. These floors include the October 2026 eMudhra CA distrust update.
-Restart or rebuild existing deployments after upgrading; an engine declaration alone does not update a running process.
-Use `npm ci` with the committed npm lockfile. Bun 1.3.14 is vulnerable and is not a supported HTTPS runtime.
+Use Node.js 22.23.4 or later in the 22.x series. Install dependencies with `npm ci` and the committed lockfile.
