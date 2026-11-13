@@ -42,7 +42,7 @@ Primarily **puzzle fans** who love the cerebral, deductive logic at the heart of
 
 Anti-reference: don't let the playful chrome bleed onto the board and make it noisy or hard to read. Bold belongs on the wrapper, calm belongs on the grid.
 
-**Theme:** support **both light and dark** with a user-facing toggle that respects system preference by default. Light = the classic paper-white board feel; dark = comfortable long-session play. (Token sets for both already exist in `app.css`; the toggle is not yet wired up.)
+**Theme:** support **both light and dark** with a user-facing toggle that respects system preference by default. Light = the classic paper-white board feel; dark = comfortable long-session play. (Token sets live in `app.css`; the toggle is `ThemeToggle.svelte`, backed by `theme.svelte.ts`.)
 
 ### Design Principles
 
